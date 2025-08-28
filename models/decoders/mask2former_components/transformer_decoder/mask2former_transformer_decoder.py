@@ -623,7 +623,7 @@ class MultiScaleMaskedTransformerDecoder(nn.Module):
         if self.mask_classification:
             self.class_embed = nn.Linear(hidden_dim, num_classes + 1)
         self.mask_embed = MLP(hidden_dim, hidden_dim, mask_dim, 3)
-
+        self.hidden_dim = hidden_dim
     # @classmethod
     # def from_config(cls, cfg, in_channels, mask_classification):
     #     ret = {}

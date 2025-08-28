@@ -12,6 +12,7 @@ from .loader import get_data_loaders
 # Re-export R2S100K dataset class directly
 from .r2s100k.dataset import R2S100k
 from .bdd100k.dataset import SemsegBDD100k
+from .combined.dataset import BDD100kR2S100k
 # Add other datasets as they're implemented
 # from .other_dataset.dataset import OtherDataset
 
@@ -27,6 +28,7 @@ __all__ = [
     # Dataset classes
     'R2S100k',
     'SemsegBDD100k',
+    'BDD100kR2S100k',
     # Add other exports as needed
 ]
 

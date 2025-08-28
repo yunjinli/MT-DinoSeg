@@ -39,7 +39,8 @@ def get_data_loaders(
             num_replicas=world_size,
             rank=rank,
             shuffle=True,
-            seed=config.seed
+            seed=config.seed,
+            drop_last=True,
         )
         
         if val_dataset is not None:
@@ -47,7 +48,8 @@ def get_data_loaders(
                 val_dataset,
                 num_replicas=world_size,
                 rank=rank,
-                shuffle=False
+                shuffle=False,
+                drop_last=True,
             )
         
         if test_dataset is not None:
@@ -55,7 +57,7 @@ def get_data_loaders(
                 test_dataset,
                 num_replicas=world_size,
                 rank=rank,
-                shuffle=False
+                shuffle=False,
             )
     # else:
     #     train_sampler = None
@@ -71,7 +73,8 @@ def get_data_loaders(
         pin_memory=config.data.pin_memory,
         persistent_workers=config.data.persistent_workers,
         prefetch_factor=config.data.prefetch_factor,
-        drop_last=config.data.drop_last,
+        # drop_last=config.data.drop_last,
+        drop_last=True,
         collate_fn=train_dataset.collate_fn
     )
     
@@ -86,7 +89,8 @@ def get_data_loaders(
             pin_memory=config.data.pin_memory,
             persistent_workers=config.data.persistent_workers,
             prefetch_factor=config.data.prefetch_factor,
-            drop_last=False,
+            # drop_last=False,
+            drop_last=True,
             collate_fn=val_dataset.collate_fn
         )
     

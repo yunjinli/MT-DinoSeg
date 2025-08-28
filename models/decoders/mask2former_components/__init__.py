@@ -1,2 +1,2 @@
 from .pixel_decoder.msdeformattn import MSDeformAttnPixelDecoder
-from .transformer_decoder import MultiScaleMaskedTransformerDecoder
+from .transformer_decoder import MultiScaleMaskedTransformerDecoder, OpenMultiScaleMaskedTransformerDecoder, MultitaskMultiScaleMaskedTransformerDecoder

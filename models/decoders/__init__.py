@@ -6,12 +6,15 @@ from config.base import DecoderConfig
 from .base import BaseDecoder
 from .linear_probing import LinearProbing
 from .segformer import SegFormerHead
-from .mask2former import Mask2FormerHead
+from .mask2former import Mask2FormerHead, OpenMask2FormerHead, MultitaskMask2FormerHead
 # Registry of decoder implementations
 DECODER_REGISTRY: Dict[str, Type[BaseDecoder]] = {
     'linear_probing': LinearProbing,
     'segformer_head': SegFormerHead,
     'mask2former_head': Mask2FormerHead,
+    'open_mask2former_head': OpenMask2FormerHead,
+    'multitask_mask2former_head': MultitaskMask2FormerHead,
+
 }
 
 def create_decoder(config: DecoderConfig) -> BaseDecoder:
@@ -30,4 +33,4 @@ def create_decoder(config: DecoderConfig) -> BaseDecoder:
     
     return decoder_class(config)
 
-__all__ = ['BaseDecoder', 'LinearProbing', 'SegFormerHead', 'Mask2FormerHead', 'create_decoder']
+__all__ = ['BaseDecoder', 'LinearProbing', 'SegFormerHead', 'Mask2FormerHead', 'OpenMask2FormerHead', 'MultitaskMask2FormerHead', 'create_decoder']

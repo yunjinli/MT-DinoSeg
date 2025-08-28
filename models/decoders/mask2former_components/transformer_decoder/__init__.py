@@ -1,2 +1,4 @@
 # Copyright (c) Facebook, Inc. and its affiliates.
 from .mask2former_transformer_decoder import MultiScaleMaskedTransformerDecoder
+from .open_mask2former_transformer_decoder import OpenMultiScaleMaskedTransformerDecoder
+from .multitask_mask2former_transformer_decoder import MultitaskMultiScaleMaskedTransformerDecoder

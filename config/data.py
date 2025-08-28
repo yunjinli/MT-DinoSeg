@@ -177,7 +177,6 @@ class R2S100KConfig(DataConfig):
         
         return image_transform, mask_transform
 
-
 # Copied from https://github.com/bdd100k/bdd100k/blob/master/bdd100k/label/label.py
 # a label and all meta information
 # Code inspired by Cityscapes https://github.com/mcordts/cityscapesScripts
@@ -308,6 +307,8 @@ bdd100k_lane_categories = [
     Label("single other", 5, 5, "lane_mark", 0, False, False, (86, 111, 219)),
     Label("single white", 6, 6, "lane_mark", 0, False, False, (160, 86, 219)),
     Label("single yellow", 7, 7, "lane_mark", 0, False, False, (219, 86, 178)),
+    Label("background", 8, 8, "lane_mark", 0, False, False, (0, 0, 0)), ## Added by myself
+
 ]
 
 BDD100K_ANNOTATIONs = {
@@ -315,6 +316,140 @@ BDD100K_ANNOTATIONs = {
     'lane': bdd100k_lane_categories,
     'drivable': bdd100k_drivables,
 }
+
+@DataRegistry.register("drivableseg_bdd100k")
+@dataclass
+class DrivablesegBDD100kConfig(DataConfig):
+    input_size: Tuple[int, int] = None
+    dataset_name: str = "drivableseg_bdd100k"
+    dataset_path: str = "/home/phd_li/dataset/bdd100k"
+    task_type: str = "semantic_segmentation"  # Can be: semantic_segmentation, instance_segmentation, panoptic_segmentation    
+    
+    mean: List[float] = field(default_factory=lambda: [0.485, 0.456, 0.406])
+    std: List[float] = field(default_factory=lambda: [0.229, 0.224, 0.225])
+    
+    # Data loading parameters
+    num_workers: int = 8
+    persistent_workers: bool = True
+    pin_memory: bool = True
+    prefetch_factor: int = 4
+    drop_last: bool = True
+
+    ## For bdd100k
+    ignore_index = 255
+    num_classes = None
+    class_names = None
+    label_colors_list = None
+    
+    def parse_color_and_names(self):
+        trainid_colors = []
+        labels = BDD100K_ANNOTATIONs['drivable']
+        for idx, label in enumerate(labels):
+            if label.trainId != 255:
+                trainid_colors.append({'trainId': label.trainId, 'color': label.color, 'name': label.name})
+        label_colors_list = [None] * len(trainid_colors)
+        class_names = [None] * len(trainid_colors)
+
+        for label in trainid_colors:
+            label_colors_list[label['trainId']] = label['color']
+            class_names[label['trainId']] = label['name']
+        
+        return label_colors_list, class_names
+        
+    def get_transforms(self):
+        """Get transforms based on configuration."""
+        try:
+            print("Input size: ", self.input_size)
+            print(f"Mean: {self.mean}, Std: {self.std}")
+            image_transform = T.Compose([ 
+                T.Resize(self.input_size),
+                T.ToTensor(),
+                T.Normalize(mean=self.mean, std=self.std),
+            ])
+            
+            mask_transform = T.Compose([
+                T.Resize(self.input_size, interpolation=InterpolationMode.NEAREST)
+            ])
+        except:
+            print("Input size not specified, use (224, 224) ...")
+            image_transform = T.Compose([ 
+                T.Resize((224, 224)),
+                T.ToTensor(),
+                T.Normalize(mean=self.mean, std=self.std),
+            ])
+            
+            mask_transform = T.Compose([
+                T.Resize((224, 224), interpolation=InterpolationMode.NEAREST)
+            ])
+        
+        return image_transform, mask_transform
+
+@DataRegistry.register("laneseg_bdd100k")
+@dataclass
+class LanesegBDD100kConfig(DataConfig):
+    input_size: Tuple[int, int] = None
+    dataset_name: str = "laneseg_bdd100k"
+    dataset_path: str = "/home/phd_li/dataset/bdd100k"
+    task_type: str = "semantic_segmentation"  # Can be: semantic_segmentation, instance_segmentation, panoptic_segmentation    
+    
+    mean: List[float] = field(default_factory=lambda: [0.485, 0.456, 0.406])
+    std: List[float] = field(default_factory=lambda: [0.229, 0.224, 0.225])
+    
+    # Data loading parameters
+    num_workers: int = 8
+    persistent_workers: bool = True
+    pin_memory: bool = True
+    prefetch_factor: int = 4
+    drop_last: bool = True
+
+    ## For bdd100k
+    ignore_index = 255
+    num_classes = None
+    class_names = None
+    label_colors_list = None
+    
+    def parse_color_and_names(self):
+        trainid_colors = []
+        labels = BDD100K_ANNOTATIONs['lane']
+        for idx, label in enumerate(labels):
+            if label.trainId != 255:
+                trainid_colors.append({'trainId': label.trainId, 'color': label.color, 'name': label.name})
+        label_colors_list = [None] * len(trainid_colors)
+        class_names = [None] * len(trainid_colors)
+
+        for label in trainid_colors:
+            label_colors_list[label['trainId']] = label['color']
+            class_names[label['trainId']] = label['name']
+        
+        return label_colors_list, class_names
+        
+    def get_transforms(self):
+        """Get transforms based on configuration."""
+        try:
+            print("Input size: ", self.input_size)
+            print(f"Mean: {self.mean}, Std: {self.std}")
+            image_transform = T.Compose([ 
+                T.Resize(self.input_size),
+                T.ToTensor(),
+                T.Normalize(mean=self.mean, std=self.std),
+            ])
+            
+            mask_transform = T.Compose([
+                T.Resize(self.input_size, interpolation=InterpolationMode.NEAREST)
+            ])
+        except:
+            print("Input size not specified, use (224, 224) ...")
+            image_transform = T.Compose([ 
+                T.Resize((224, 224)),
+                T.ToTensor(),
+                T.Normalize(mean=self.mean, std=self.std),
+            ])
+            
+            mask_transform = T.Compose([
+                T.Resize((224, 224), interpolation=InterpolationMode.NEAREST)
+            ])
+        
+        return image_transform, mask_transform
 
 @DataRegistry.register("semseg_bdd100k")
 @dataclass
@@ -383,11 +518,11 @@ class SemsegBDD100kConfig(DataConfig):
         
         return image_transform, mask_transform
 
-@DataRegistry.register("bdd100k")
+@DataRegistry.register("multitask_bdd100k")
 @dataclass
 class BDD100kConfig(DataConfig):
     input_size: Tuple[int, int] = None
-    dataset_name: str = "bdd100k"
+    dataset_name: str = "multitask_bdd100k"
     dataset_path: str = "/home/phd_li/dataset/bdd100k"
     task_type: str = "semantic_segmentation"  # Can be: semantic_segmentation, instance_segmentation, panoptic_segmentation
     
@@ -406,9 +541,9 @@ class BDD100kConfig(DataConfig):
     ## For bdd100k
     ignore_index = 255
 
-    num_classes = None
-    class_names = None
-    label_colors_list = None
+    # num_classes = None
+    # class_names = None
+    # label_colors_list = None
     
 
     def parse_color_and_names(self, task):
@@ -425,6 +560,107 @@ class BDD100kConfig(DataConfig):
             class_names[label['trainId']] = label['name']
         
         return label_colors_list, class_names
+    
+    def get_transforms(self):
+        """Get transforms based on configuration."""
+        try:
+            print("Input size: ", self.input_size)
+            print(f"Mean: {self.mean}, Std: {self.std}")
+            image_transform = T.Compose([ 
+                T.Resize(self.input_size),
+                T.ToTensor(),
+                T.Normalize(mean=self.mean, std=self.std),
+            ])
+            
+            mask_transform = T.Compose([
+                T.Resize(self.input_size, interpolation=InterpolationMode.NEAREST)
+            ])
+        except:
+            print("Input size not specified, use (224, 224) ...")
+            image_transform = T.Compose([ 
+                T.Resize((224, 224)),
+                T.ToTensor(),
+                T.Normalize(mean=self.mean, std=self.std),
+            ])
+            
+            mask_transform = T.Compose([
+                T.Resize((224, 224), interpolation=InterpolationMode.NEAREST)
+            ])
+        
+        return image_transform, mask_transform
+
+@DataRegistry.register("semseg_bdd100k_r2s100k")
+@dataclass
+class SemsegBDD100kR2S100kConfig(DataConfig):
+    input_size: Tuple[int, int] = None
+    dataset_name: str = "semseg_bdd100k_r2s100k"
+    # dataset_path = None
+    dataset_path: str = "/home/phd_li/dataset/bdd100k"
+    dataset_path_bdd = "/home/phd_li/dataset/bdd100k"
+    dataset_path_r2s = "/home/phd_li/dataset/r2s100k"
+    task_type: str = "semantic_segmentation"  # Can be: semantic_segmentation, instance_segmentation, panoptic_segmentation    
+    
+    mean: List[float] = field(default_factory=lambda: [0.485, 0.456, 0.406])
+    std: List[float] = field(default_factory=lambda: [0.229, 0.224, 0.225])
+    
+    # R2S100k
+    _raw_num_classes_r2s: int = 15
+    _raw_class_names_r2s: List[str] = field(default_factory=lambda: [
+        'bg', 'wet_road_region', 'road_region', 'mud', 'earthen_patch', 
+        'mountain-stones', 'dirt', 'vegitation_misc', 'distressed_patch', 
+        'drainage_grate', 'water_puddle', 'speed_breaker', 'misc', 
+        'gravel_patch', 'concrete_material'
+    ])
+    _raw_label_colors_list_r2s: List[Tuple[int, int, int]] = field(default_factory=lambda: [
+        (0, 0, 0),          # BG
+        (2, 79, 59),        # Wet_Road_Region
+        (17, 163, 74),      # Road_region
+        (112, 84, 62),      # Mud
+        (225, 148, 79),     # Earthen_Patch
+        (120, 114, 104),    # Mountain-stones
+        (166, 130, 95),     # Dirt
+        (128, 222, 91),     # Vegitation_Misc
+        (119, 61, 128),     # Distressed_Patch
+        (93, 86, 176),      # Drainage_Grate
+        (140, 160, 222),    # Water_puddle
+        (234, 133, 5),      # Speed_Breaker
+        (156, 28, 39),      # Misc 
+        (99, 122, 130),     # Gravel_Patch 
+        (123, 43, 31),      # Concrete_Material
+    ])
+
+    # Data loading parameters
+    num_workers: int = 8
+    persistent_workers: bool = True
+    pin_memory: bool = True
+    prefetch_factor: int = 4
+    drop_last: bool = True
+
+    ignore_index = 255
+    # num_classes = None
+    # class_names = None
+    # label_colors_list = None
+    tasks: List[str] = field(default_factory=lambda: ['bdd100k', 'r2s100k'])
+    
+    def parse_color_and_names(self, task):
+        if task == 'r2s100k':
+           return self._raw_label_colors_list_r2s, self._raw_class_names_r2s
+        elif task == 'bdd100k':
+            trainid_colors = []
+            labels = BDD100K_ANNOTATIONs['sem_seg']
+            for idx, label in enumerate(labels):
+                if label.trainId != 255:
+                    trainid_colors.append({'trainId': label.trainId, 'color': label.color, 'name': label.name})
+            label_colors_list = [None] * len(trainid_colors)
+            class_names = [None] * len(trainid_colors)
+
+            for label in trainid_colors:
+                label_colors_list[label['trainId']] = label['color']
+                class_names[label['trainId']] = label['name']
+            
+            return label_colors_list, class_names
+        else:
+            raise NotImplementedError
         
     def get_transforms(self):
         """Get transforms based on configuration."""

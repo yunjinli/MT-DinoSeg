@@ -16,7 +16,7 @@ class DecoderConfig:
     """Base configuration for decoders"""
     name: str
     input_dim: int = -1 ## Will be set later
-    num_classes: int = -1 ## Will be set later
+    # num_classes: int = -1 ## Will be set later
 
 @dataclass
 class ModelConfig:

@@ -3,7 +3,7 @@ import os
 import torch
 import torch.distributed as dist
 from typing import Dict, Any, Optional, Union
-
+import torch.nn.functional as F
 
 def is_distributed() -> bool:
     """Check if distributed training is available and initialized."""
@@ -134,8 +134,7 @@ def reduce_tensor(tensor: torch.Tensor, average: bool = True) -> torch.Tensor:
     
     return rt
 
-
-def gather_tensor(tensor: torch.Tensor) -> torch.Tensor:
+def gather_tensor(tensor: torch.Tensor, group=None) -> torch.Tensor:
     """
     Gather tensors from all processes.
     
@@ -158,7 +157,7 @@ def gather_tensor(tensor: torch.Tensor) -> torch.Tensor:
     gathered_tensors = [torch.zeros_like(tensor) for _ in range(world_size)]
     
     # Gather all tensors
-    dist.all_gather(gathered_tensors, tensor)
+    dist.all_gather(gathered_tensors, tensor, group=group)
     
     # Concatenate tensors (this will be the same on all ranks)
     return torch.cat(gathered_tensors, dim=0)

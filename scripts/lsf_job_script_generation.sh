@@ -17,6 +17,7 @@ FREEZE=true
 USE_AMP=false
 GRAD_CLIP=""
 LR="0.001"
+RESUME=""
 # Script paths
 PROJECT_DIR="/home/phd_li/git_repo/MT-DinoSeg"
 LOG_DIR="$PROJECT_DIR/logs"
@@ -76,6 +77,10 @@ while [[ $# -gt 0 ]]; do
             LR="$2"
             shift 2
             ;;
+        --resume)
+            RESUME="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
@@ -94,6 +99,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --use-amp          Enable mixed precision training"
             echo "  --grad-clip VALUE  Gradient clipping value (e.g., 1.0)"
             echo "  --lr               Learning Rate (default: $LR)"
+            echo "  --resume PATH      Path to the checkpoint (default: $RESUME)"
             echo ""
             echo "  -h, --help         Show this help"
             exit 0
@@ -190,6 +196,7 @@ TRAIN_CMD="train.py \\\\
 $(if [ "$FREEZE" = false ]; then echo "TRAIN_CMD=\"\$TRAIN_CMD --train_backbone\""; fi)
 $(if [ "$USE_AMP" = true ]; then echo "TRAIN_CMD=\"\$TRAIN_CMD --use_amp\""; fi)
 $(if [ -n "$GRAD_CLIP" ]; then echo "TRAIN_CMD=\"\$TRAIN_CMD --grad_clip ${GRAD_CLIP}\""; fi)
+$(if [ "$RESUME" != "" ]; then echo "TRAIN_CMD=\"\$TRAIN_CMD --resume_from ${RESUME}\""; fi)
 
 # Run training
 if [ ${GPUS} -eq 1 ]; then
