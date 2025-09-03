@@ -35,7 +35,9 @@ from PIL import Image
 import torch.nn.functional as F
 from .criterion import SetCriterion
 from .matcher import HungarianMatcher
-import torch.distributed as dist
+# import torch.distributed as dist
+from utility.ema import EMA
+ 
 
 class Trainer:
     """Trainer class for handling the training loop with distributed support."""
@@ -1781,6 +1783,14 @@ class MultitaskTrainer(Trainer):
         for t in self.config.tasks:
             self.metrics_history[f'mean_iou_{t}'] = []
             self.metrics_history[f'pixel_accuracy_{t}'] = []
+            
+        if self.config.enable_ema:
+            self.ema_model = EMA(model=self.model, decay=self.config.ema_decay, device=self.device, )
+            if is_main_process():
+                print("Using EMA weights for pseudo-labeling")
+        else:
+            self.ema_model = None
+            
 
     def train_epoch(self, epoch: int) -> Dict[str, float]:
         """
@@ -2219,7 +2229,8 @@ class MultitaskTrainer(Trainer):
         # Gather metrics from all processes
         if is_distributed():
             # print(f"Rank: {get_rank()} finish epoch...", flush=True)
-            dist.barrier()
+            # dist.barrier()
+            synchronize()
             # Gather basic loss and memory stats
             process_stats = torch.tensor([
                 loss_meter.avg,
@@ -2293,7 +2304,8 @@ class MultitaskTrainer(Trainer):
             #     task_groups[t] = dist.new_group()
 
             for t in self.config.tasks:
-                dist.barrier()
+                # dist.barrier()
+                synchronize()
                 # print(f"Rank: {get_rank()} inside for t in self.config.tasks")
                 if confusion_matrix[t].mat is not None:
                     cm_tensor = torch.tensor(confusion_matrix[t].mat, dtype=torch.float32, device=self.device)
