@@ -150,8 +150,9 @@ class MultitaskMask2FormerHead(BaseDecoder):
         conv_dim = getattr(config, 'conv_dim', 256)
         
         return MultitaskMultiScaleMaskedTransformerDecoder(
-            num_obj_queries_dict=config.num_obj_queries_dict, 
-            num_class_dict=config.num_class_dict,
+            # num_obj_queries_dict=config.num_obj_queries_dict, 
+            # num_class_dict=config.num_class_dict,
+            dataset_prediction_mapping=config.dataset_prediction_mapping,
             in_channels=conv_dim,
             mask_classification=self.mask_classification,
             num_classes=config.num_classes,
