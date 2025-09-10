@@ -14,8 +14,9 @@ class MultitaskMask2FormerHeadConfig(DecoderConfig):
     """mask2former head."""
     name: str = 'multitask_mask2former_head'
     input_dim: int = -1
-    # num_classes: int = -1
-    num_class_dict: Dict = None
+    num_classes: int = -1
+    # num_class_dict: Dict = None
+    dataset_prediction_mapping: Dict = None
     # Input shape information (will be set automatically)
     input_shape: Dict[str, ShapeSpec] = field(default_factory=dict)
     
@@ -34,9 +35,9 @@ class MultitaskMask2FormerHeadConfig(DecoderConfig):
     
     # Transformer decoder config
     maskformer_hidden_dim: int = 256
-    # num_obj_queries: int = 150
+    num_obj_queries: int = 100
     # num_obj_queries_dict: Dict = field(default_factory=lambda: {'sem_seg': 100, 'lane': 25, 'drivable': 25})
-    num_obj_queries_dict: Dict = None
+    # num_obj_queries_dict: Dict = None
     maskformer_nheads: int = 8
     maskformer_dim_feedforward: int = 2048
     dec_layers: int = 9
@@ -61,18 +62,19 @@ class MultitaskMask2FormerHeadConfig(DecoderConfig):
     oversample_ratio: float = 3.0
     importance_sample_ratio: float = 0.75
 
-    @property
-    def num_obj_queries(self):
-        counter = 0
-        for _, num_obj_q in self.num_obj_queries_dict.items():
-            counter += num_obj_q
-        return counter
-    @property
-    def num_classes(self):
-        counter = 0
-        for _, num in self.num_class_dict.items():
-            counter += num
-        return counter
+    # @property
+    # def num_obj_queries(self):
+    #     counter = 0
+    #     for _, num_obj_q in self.num_obj_queries_dict.items():
+    #         counter += num_obj_q
+    #     return counter
+    
+    # @property
+    # def num_classes(self):
+    #     counter = 0
+    #     for _, num in self.num_class_dict.items():
+    #         counter += num
+    #     return counter
 
 @DecoderRegistry.register("open_mask2former_head")
 @dataclass

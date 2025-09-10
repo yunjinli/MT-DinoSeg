@@ -187,24 +187,35 @@ class SemsegBDD100kR2S100k(Config):
 
     # tasks: List[str] = field(default_factory=lambda: ['sem_seg', 'lane', 'drivable'])
     tasks: List[str] = field(default_factory=lambda: ['bdd100k', 'r2s100k'])
-    num_obj_queries_dict: Dict = field(default_factory=lambda: {'bdd100k': 100, 'r2s100k': 100})
+    # num_obj_queries_dict: Dict = field(default_factory=lambda: {'bdd100k': 100, 'r2s100k': 100})
 
+    # class_concatentation: bool = False
     num_class_dict: Dict = None
-
+    dataset_prediction_mapping: Dict = None
+    
     def __post_init__(self):
         self.model = ModelRegistry.get(self.model_name)()
         self.data.tasks = self.tasks
-        self.num_class_dict = {}
-
+        # self.num_class_dict = {}
+        self.dataset_prediction_mapping = {}
+        manual_labels_dict = self.data.get_manual_superset_color_and_names()
         for t in self.tasks:
-            _, class_names = self.data.parse_color_and_names(t)
-            self.num_class_dict[t] = len(class_names)
-        print("Initialize Experiment with Multi-Task Training...")
-        print(f"Tasks: {self.tasks}")
-        print(f"Number of classes per task: {self.num_class_dict}")
+            self.dataset_prediction_mapping[t] = manual_labels_dict['M_sup_to_bdd' if t == 'bdd100k' else 'M_sup_to_r2s']
+            self.num_class_dict[t] = len(manual_labels_dict['bdd_order' if t == 'bdd100k' else 'r2s_order'])
+        self.model.decoder.dataset_prediction_mapping = self.dataset_prediction_mapping
+        
+        #     _, class_names = self.data.parse_color_and_names(t)
+        #     self.num_class_dict[t] = len(class_names)
+        # print("Initialize Experiment with Multi-Task Training...")
+        # print(f"Tasks: {self.tasks}")
+        # print(f"Number of classes per task: {self.num_class_dict}")
 
-        self.model.decoder.num_class_dict = self.num_class_dict
-        self.model.decoder.num_obj_queries_dict = self.num_obj_queries_dict
+        # self.model.decoder.num_class_dict = self.num_class_dict
+        
+        # colormap_superset, classnames_superset = self.data.get_manual_superset_color_and_names()
+        self.model.decoder.num_classes = len(manual_labels_dict['sup_names'])
+        
+        # self.model.decoder.num_obj_queries_dict = self.num_obj_queries_dict
         # self.data.num_classes = len(self.data.class_names)
         self.data.num_classes = self.model.decoder.num_classes
         if self.model.decoder.name in ['mask2former_head', 'open_mask2former_head', 'multitask_mask2former_head']:

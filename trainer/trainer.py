@@ -1784,7 +1784,8 @@ class MultitaskTrainer(Trainer):
             self.metrics_history[f'mean_iou_{t}'] = []
             self.metrics_history[f'pixel_accuracy_{t}'] = []
             
-        if self.config.enable_ema:
+        # if self.config.enable_ema:
+        if getattr(self.config, 'enable_ema', False):
             self.ema_model = EMA(model=self.model, decay=self.config.ema_decay, device=self.device, )
             if is_main_process():
                 print("Using EMA weights for pseudo-labeling")

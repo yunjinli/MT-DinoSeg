@@ -7,6 +7,7 @@ from .registry import ConfigRegistry
 import torchvision.transforms as T
 from collections import namedtuple
 from torchvision.transforms import InterpolationMode
+import numpy as np
 
 DataRegistry = ConfigRegistry[DataConfig]("DataRegistry")
 
@@ -642,9 +643,156 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
     # label_colors_list = None
     tasks: List[str] = field(default_factory=lambda: ['bdd100k', 'r2s100k'])
     
+    def get_manual_superset_color_and_names(self):
+        classnames_superset = [
+        # fine-grained road surface (from R2S)
+        "road_region", "wet_road_region", "water_puddle", "mud", "earthen_patch",
+        "dirt", "gravel_patch", "distressed_patch", "drainage_grate", "speed_breaker", "misc",
+        # rest from BDD
+        "sidewalk", "building", "wall", "fence", "pole", "traffic_light", "traffic_sign",
+        "vegetation", "terrain", "sky", "person", "rider", "car", "truck", "bus",
+        "train", "motorcycle", "bicycle",
+        ]
+        color_map_superset = [
+            # fine-grained road surface (from R2S)
+            (17, 163, 74),      # road_region
+            (2, 79, 59),        # wet_road_region
+            (140, 160, 222),    # water_puddle
+            (112, 84, 62),      # mud
+            (225, 148, 79),     # earthen_patch
+            (166, 130, 95),     # dirt
+            (99, 122, 130),     # gravel_patch
+            (119, 61, 128),     # distressed_patch
+            (93, 86, 176),      # drainage_grate
+            (234, 133, 5),      # speed_breaker
+            (156, 28, 39),      # misc
+            # rest from BDD
+            (244, 35, 232),     # sidewalk
+            (70, 70, 70),       # building
+            (102, 102, 156),    # wall
+            (190, 153, 153),    # fence
+            (153, 153, 153),    # pole
+            (250, 170, 30),     # traffic_light
+            (220, 220, 0),      # traffic_sign
+            (107, 142, 35),     # vegetation
+            (152, 251, 152),    # terrain
+            (70, 130, 180),     # sky
+            (220, 20, 60),      # person
+            (255, 0, 0),        # rider
+            (0, 0, 142),        # car
+            (0, 0, 70),         # truck
+            (0, 60, 100),       # bus
+            (0, 80, 100),       # train
+            (0, 0, 230),        # motorcycle
+            (119, 11, 32),      # bicycle
+        ]
+        # --- Define your dataset label orders once (adjust to your exact loaders) ---
+        bdd_order = [
+            "road","sidewalk","building","wall","fence","pole","traffic_light","traffic_sign",
+            "vegetation","terrain","sky","person","rider","car","truck","bus","train","motorcycle","bicycle"
+        ]
+        r2s_order = [
+            # Use your true R2S class order here
+            "bg", "wet_road_region","road_region","mud","earthen_patch","mountain-stones",
+            "dirt","vegitation_misc","distressed_patch","drainage_grate","water_puddle",
+            "speed_breaker","misc","gravel_patch","concrete_material"
+            # (if R2S has 16, add the missing one here)
+        ]
+
+        # --- Canonicalize name quirks so mapping is robust ---
+        def canon(name: str):
+            return name.replace("-", "_").replace("vegitation", "vegetation")
+
+        sup2idx = {canon(n): i for i, n in enumerate(classnames_superset)}
+
+        # --- Dataset -> Superset allowed sets (for training) ---
+        bdd2sup_names = {
+            "road": [
+                "road_region","wet_road_region","water_puddle","mud","earthen_patch",
+                "dirt","gravel_patch","distressed_patch","drainage_grate","speed_breaker","misc",
+            ],
+            "sidewalk": ["sidewalk"],
+            "building": ["building"],
+            "wall": ["wall"],
+            "fence": ["fence"],
+            "pole": ["pole"],
+            "traffic_light": ["traffic_light"],
+            "traffic_sign": ["traffic_sign"],
+            "vegetation": ["vegetation"],
+            "terrain": ["terrain"],
+            "sky": ["sky"],
+            "person": ["person"],
+            "rider": ["rider"],
+            "car": ["car"],
+            "truck": ["truck"],
+            "bus": ["bus"],
+            "train": ["train"],
+            "motorcycle": ["motorcycle"],
+            "bicycle": ["bicycle"],
+        }
+        r2s2sup_names = {
+            "bg": [
+                'building', 'wall', 'fence', 'pole', 'traffic_light', 'traffic_sign',
+                'sky', 'person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle',
+                ],  # ignore or low weight
+            "wet_road_region": ["wet_road_region"],
+            "road_region": ["road_region"],
+            "mud": ["mud"],
+            "earthen_patch": ["earthen_patch"],
+            "mountain-stones": ["terrain"],            # or a dedicated class if you kept it
+            "dirt": ["dirt"],
+            "vegitation_misc": ["vegetation"],
+            "distressed_patch": ["distressed_patch"],
+            "drainage_grate": ["drainage_grate"],
+            "water_puddle": ["water_puddle"],
+            "speed_breaker": ["speed_breaker"],
+            "misc": ["misc"],
+            "gravel_patch": ["gravel_patch"],
+            "concrete_material": ["sidewalk"],         # curb/sidewalk
+            # add any missing R2S label if needed
+        }
+
+        # Convert to index lists for set-aware loss
+        def to_idx_lists(order, mapping_dict):
+            idx_lists = []
+            for name in order:
+                S_names = mapping_dict.get(name, [])
+                idx_lists.append([sup2idx[canon(s)] for s in S_names if canon(s) in sup2idx])
+            return idx_lists
+
+        map_bdd2sup_idx = to_idx_lists(bdd_order, bdd2sup_names)
+        map_r2s2sup_idx = to_idx_lists(r2s_order, r2s2sup_names)
+
+        # --- Superset -> Dataset projection matrices for eval ---
+        
+        def build_proj(order, idx_lists, C_sup):
+            M = np.zeros((len(order), C_sup), dtype=np.float32)
+            for i, S in enumerate(idx_lists):
+                for j in S:
+                    M[i, j] = 1.0
+            return M
+
+        M_sup_to_bdd = build_proj(bdd_order, map_bdd2sup_idx, len(classnames_superset))
+        M_sup_to_r2s = build_proj(r2s_order, map_r2s2sup_idx, len(classnames_superset))
+
+        # Sanity checks (optional)
+        # assert M_sup_to_bdd.shape[1] == len(classnames_superset)
+
+        return {
+            "sup_names": classnames_superset,
+            "sup_colors": color_map_superset,
+            "bdd_order": bdd_order,
+            "r2s_order": r2s_order,
+            "map_bdd2sup_idx": map_bdd2sup_idx,
+            "map_r2s2sup_idx": map_r2s2sup_idx,
+            "M_sup_to_bdd": M_sup_to_bdd,   # use: P_bdd = P_sup @ M_sup_to_bdd.T
+            "M_sup_to_r2s": M_sup_to_r2s,   # use: P_r2s = P_sup @ M_sup_to_r2s.T
+        }
+        
     def parse_color_and_names(self, task):
         if task == 'r2s100k':
            return self._raw_label_colors_list_r2s, self._raw_class_names_r2s
+            # return [color for i, color in enumerate(self._raw_label_colors_list_r2s) if i != 0], [cls for cls in self._raw_class_names_r2s if cls != 'bg']
         elif task == 'bdd100k':
             trainid_colors = []
             labels = BDD100K_ANNOTATIONs['sem_seg']
