@@ -1848,7 +1848,7 @@ class MultitaskTrainer(Trainer):
             if self.use_amp and self.scaler is not None:
                 # Mixed precision training
                 with autocast():
-                    outputs = self.model(inputs)
+                    _, outputs = self.model(inputs)
                     if self.config.data.task_type == 'semantic_segmentation':
                         # outputs = torch.nn.functional.interpolate(
                         #     outputs, size=targets.shape[1:], 
@@ -1902,7 +1902,7 @@ class MultitaskTrainer(Trainer):
                 self.scaler.update()
             else:
                 # Standard precision training
-                outputs = self.model(inputs)
+                _, outputs = self.model(inputs)
                 if self.config.data.task_type == 'semantic_segmentation':
                     # outputs = torch.nn.functional.interpolate(outputs, size=targets.shape[1:], mode="bilinear", align_corners=False)
                     # loss = self.criterion(outputs, targets)
@@ -2106,7 +2106,7 @@ class MultitaskTrainer(Trainer):
                 # print(f"Rank: {get_rank()}: ids: {ids}, targets bdd: {len(targets[self.config.tasks[0]])}, targets bdd: {len(targets[self.config.tasks[1]])}")
                 
                 # Run forward pass
-                outputs = self.model(inputs)
+                _, outputs = self.model(inputs)
                 # print(targets)
                 if self.config.data.task_type == 'semantic_segmentation':
                     # outputs = torch.nn.functional.interpolate(outputs, size=targets.shape[1:], mode="bilinear", align_corners=False)

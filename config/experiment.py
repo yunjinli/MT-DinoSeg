@@ -196,7 +196,7 @@ class SemsegBDD100kR2S100k(Config):
     def __post_init__(self):
         self.model = ModelRegistry.get(self.model_name)()
         self.data.tasks = self.tasks
-        # self.num_class_dict = {}
+        self.num_class_dict = {}
         self.dataset_prediction_mapping = {}
         manual_labels_dict = self.data.get_manual_superset_color_and_names()
         for t in self.tasks:
