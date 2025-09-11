@@ -14,7 +14,7 @@ class MultitaskMask2FormerHeadConfig(DecoderConfig):
     """mask2former head."""
     name: str = 'multitask_mask2former_head'
     input_dim: int = -1
-    num_classes: int = -1
+    num_classes: int = -1 ## Number of super classes
     # num_class_dict: Dict = None
     dataset_prediction_mapping: Dict = None
     # Input shape information (will be set automatically)
