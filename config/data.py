@@ -693,7 +693,8 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
         ]
         r2s_order = [
             # Use your true R2S class order here
-            "bg", "wet_road_region","road_region","mud","earthen_patch","mountain-stones",
+            # "bg", "wet_road_region","road_region","mud","earthen_patch","mountain-stones",
+            "wet_road_region","road_region","mud","earthen_patch","mountain-stones",
             "dirt","vegitation_misc","distressed_patch","drainage_grate","water_puddle",
             "speed_breaker","misc","gravel_patch","concrete_material"
             # (if R2S has 16, add the missing one here)
@@ -731,10 +732,10 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
             "bicycle": ["bicycle"],
         }
         r2s2sup_names = {
-            "bg": [
-                'building', 'wall', 'fence', 'pole', 'traffic_light', 'traffic_sign',
-                'sky', 'person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle',
-                ],  # ignore or low weight
+            # "bg": [
+            #     'building', 'wall', 'fence', 'pole', 'traffic_light', 'traffic_sign',
+            #     'sky', 'person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle',
+            #     ],  # ignore or low weight
             "wet_road_region": ["wet_road_region"],
             "road_region": ["road_region"],
             "mud": ["mud"],
@@ -791,8 +792,8 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
         
     def parse_color_and_names(self, task):
         if task == 'r2s100k':
-           return self._raw_label_colors_list_r2s, self._raw_class_names_r2s
-            # return [color for i, color in enumerate(self._raw_label_colors_list_r2s) if i != 0], [cls for cls in self._raw_class_names_r2s if cls != 'bg']
+        #    return self._raw_label_colors_list_r2s, self._raw_class_names_r2s
+            return [color for i, color in enumerate(self._raw_label_colors_list_r2s) if i != 0], [cls for cls in self._raw_class_names_r2s if cls != 'bg']
         elif task == 'bdd100k':
             trainid_colors = []
             labels = BDD100K_ANNOTATIONs['sem_seg']

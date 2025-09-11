@@ -21,6 +21,7 @@ class ViTAdapter(BaseEncoder):
         super().__init__(config)
         try:
             self.encoder = torch.hub.load('facebookresearch/dinov2', config.dinov2_type)
+            # self.encoder = torch.hub.load('/home/phd_li/.cache/torch/hub/facebookresearch_dinov2_main', config.dinov2_type, source='local')
         except Exception as e:
             raise RuntimeError(f"Failed to load DINOv2 model {config.dinov2_type}: {e}")
         
@@ -64,10 +65,15 @@ class ViTAdapter(BaseEncoder):
             ]
         )
         self.up = nn.ConvTranspose2d(embed_dim, embed_dim, 2, 2)
-        self.norm1 = nn.SyncBatchNorm(embed_dim)
-        self.norm2 = nn.SyncBatchNorm(embed_dim)
-        self.norm3 = nn.SyncBatchNorm(embed_dim)
-        self.norm4 = nn.SyncBatchNorm(embed_dim)
+        # self.norm1 = nn.SyncBatchNorm(embed_dim)
+        # self.norm2 = nn.SyncBatchNorm(embed_dim)
+        # self.norm3 = nn.SyncBatchNorm(embed_dim)
+        # self.norm4 = nn.SyncBatchNorm(embed_dim)
+        num_groups = min(32, embed_dim)
+        self.norm1 = nn.GroupNorm(num_groups, embed_dim)
+        self.norm2 = nn.GroupNorm(num_groups, embed_dim)
+        self.norm3 = nn.GroupNorm(num_groups, embed_dim)
+        self.norm4 = nn.GroupNorm(num_groups, embed_dim)
 
         self.up.apply(self._init_weights)
         self.spm.apply(self._init_weights)

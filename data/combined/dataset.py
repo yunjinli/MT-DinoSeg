@@ -66,7 +66,8 @@ class BDD100kR2S100k(Dataset):
         This function encodes the pixels belonging to the same class
         in the image into the same label
         """
-        label_mask = np.zeros((mask.shape[0], mask.shape[1]), dtype=np.uint8)
+        label_mask = np.ones((mask.shape[0], mask.shape[1]), dtype=np.uint8)
+        label_mask *= 255
         for value in class_values:
             for ii, label in enumerate(label_colors_list):
                 if value == label_colors_list.index(label):

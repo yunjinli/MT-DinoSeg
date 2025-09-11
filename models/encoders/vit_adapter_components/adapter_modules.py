@@ -399,39 +399,47 @@ class SpatialPriorModule(nn.Module):
     def __init__(self, inplanes=64, embed_dim=384, with_cp=False):
         super().__init__()
         self.with_cp = with_cp
-
+        num_groups = min(32, inplanes)
         self.stem = nn.Sequential(
             *[
                 nn.Conv2d(3, inplanes, kernel_size=3, stride=2, padding=1, bias=False),
-                nn.SyncBatchNorm(inplanes),
+                # nn.SyncBatchNorm(inplanes),
+                nn.GroupNorm(num_groups, inplanes),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(inplanes, inplanes, kernel_size=3, stride=1, padding=1, bias=False),
-                nn.SyncBatchNorm(inplanes),
+                # nn.SyncBatchNorm(inplanes),
+                nn.GroupNorm(num_groups, inplanes),
                 nn.ReLU(inplace=True),
                 nn.Conv2d(inplanes, inplanes, kernel_size=3, stride=1, padding=1, bias=False),
-                nn.SyncBatchNorm(inplanes),
+                # nn.SyncBatchNorm(inplanes),
+                nn.GroupNorm(num_groups, inplanes),
                 nn.ReLU(inplace=True),
                 nn.MaxPool2d(kernel_size=3, stride=2, padding=1),
             ]
         )
+        num_groups = min(32, 2 * inplanes)
         self.conv2 = nn.Sequential(
             *[
                 nn.Conv2d(inplanes, 2 * inplanes, kernel_size=3, stride=2, padding=1, bias=False),
-                nn.SyncBatchNorm(2 * inplanes),
+                # nn.SyncBatchNorm(2 * inplanes),
+                nn.GroupNorm(num_groups, 2 * inplanes),
                 nn.ReLU(inplace=True),
             ]
         )
+        num_groups = min(32, 4 * inplanes)
         self.conv3 = nn.Sequential(
             *[
                 nn.Conv2d(2 * inplanes, 4 * inplanes, kernel_size=3, stride=2, padding=1, bias=False),
-                nn.SyncBatchNorm(4 * inplanes),
+                # nn.SyncBatchNorm(4 * inplanes),
+                nn.GroupNorm(num_groups, 4 * inplanes),
                 nn.ReLU(inplace=True),
             ]
         )
         self.conv4 = nn.Sequential(
             *[
                 nn.Conv2d(4 * inplanes, 4 * inplanes, kernel_size=3, stride=2, padding=1, bias=False),
-                nn.SyncBatchNorm(4 * inplanes),
+                # nn.SyncBatchNorm(4 * inplanes),
+                nn.GroupNorm(num_groups, 4 * inplanes),
                 nn.ReLU(inplace=True),
             ]
         )
