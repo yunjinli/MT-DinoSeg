@@ -22,7 +22,8 @@ DATASET_REGISTRY = {
 
 def get_params_semseg_bdd100k_r2s100k(config, split):
     # Create transforms
-    image_transform, mask_transform = config.get_transforms()
+    # image_transform, mask_transform = config.get_transforms()
+    transform = config.get_transforms(split=split)
     # Get dataset path
     base_path_bdd = Path(config.dataset_path_bdd)
     base_path_r2s = Path(config.dataset_path_r2s)
@@ -63,8 +64,9 @@ def get_params_semseg_bdd100k_r2s100k(config, split):
         'image_base_r2s': str(image_base_r2s),
         'label_base_bdd': str(label_base_bdd),
         'label_base_r2s': str(label_base_r2s),
-        'image_transform': image_transform,
-        'mask_transform': mask_transform,
+        # 'image_transform': image_transform,
+        # 'mask_transform': mask_transform,
+        'transform': transform,
         'class_names_bdd': class_names_bdd,
         'class_names_r2s': class_names_r2s,
         'label_colors_list_bdd': label_colors_list_bdd,

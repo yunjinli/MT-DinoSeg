@@ -8,6 +8,8 @@ import torchvision.transforms as T
 from collections import namedtuple
 from torchvision.transforms import InterpolationMode
 import numpy as np
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 DataRegistry = ConfigRegistry[DataConfig]("DataRegistry")
 
@@ -596,9 +598,13 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
     input_size: Tuple[int, int] = None
     dataset_name: str = "semseg_bdd100k_r2s100k"
     # dataset_path = None
-    dataset_path: str = "/home/phd_li/dataset/bdd100k"
-    dataset_path_bdd = "/home/phd_li/dataset/bdd100k"
-    dataset_path_r2s = "/home/phd_li/dataset/r2s100k"
+    # dataset_path: str = "/home/phd_li/dataset/bdd100k"
+    # dataset_path_bdd = "/home/phd_li/dataset/bdd100k"
+    # dataset_path_r2s = "/home/phd_li/dataset/r2s100k"
+    dataset_path: str = "/mnt/sda/bdd100k"
+    dataset_path_bdd = "/mnt/sda/bdd100k"
+    dataset_path_r2s = "/mnt/sda/r2s100k"
+    
     task_type: str = "semantic_segmentation"  # Can be: semantic_segmentation, instance_segmentation, panoptic_segmentation    
     
     mean: List[float] = field(default_factory=lambda: [0.485, 0.456, 0.406])
@@ -811,30 +817,65 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
         else:
             raise NotImplementedError
         
-    def get_transforms(self):
-        """Get transforms based on configuration."""
-        try:
-            print("Input size: ", self.input_size)
-            print(f"Mean: {self.mean}, Std: {self.std}")
-            image_transform = T.Compose([ 
-                T.Resize(self.input_size),
-                T.ToTensor(),
-                T.Normalize(mean=self.mean, std=self.std),
-            ])
+    # def get_transforms(self):
+    #     """Get transforms based on configuration."""
+    #     try:
+    #         print("Input size: ", self.input_size)
+    #         print(f"Mean: {self.mean}, Std: {self.std}")
+    #         image_transform = T.Compose([ 
+    #             T.Resize(self.input_size),
+    #             T.ToTensor(),
+    #             T.Normalize(mean=self.mean, std=self.std),
+    #         ])
             
-            mask_transform = T.Compose([
-                T.Resize(self.input_size, interpolation=InterpolationMode.NEAREST)
-            ])
-        except:
-            print("Input size not specified, use (224, 224) ...")
-            image_transform = T.Compose([ 
-                T.Resize((224, 224)),
-                T.ToTensor(),
-                T.Normalize(mean=self.mean, std=self.std),
-            ])
+    #         mask_transform = T.Compose([
+    #             T.Resize(self.input_size, interpolation=InterpolationMode.NEAREST)
+    #         ])
+    #     except:
+    #         print("Input size not specified, use (224, 224) ...")
+    #         image_transform = T.Compose([ 
+    #             T.Resize((224, 224)),
+    #             T.ToTensor(),
+    #             T.Normalize(mean=self.mean, std=self.std),
+    #         ])
             
-            mask_transform = T.Compose([
-                T.Resize((224, 224), interpolation=InterpolationMode.NEAREST)
-            ])
+    #         mask_transform = T.Compose([
+    #             T.Resize((224, 224), interpolation=InterpolationMode.NEAREST)
+    #         ])
         
-        return image_transform, mask_transform
+    #     return image_transform, mask_transform
+    def get_transforms(self, split="train"):
+        """Get transforms based on configuration."""
+        # photometric = A.ColorJitter(0.2, 0.2, 0.2, 0.02, p=0.5) if dataset=="bdd" \
+        #           else A.ColorJitter(0.15, 0.15, 0.15, 0.02, p=0.3)
+        
+        # transform = {}
+        
+        crop_h, crop_w = self.input_size if self.input_size is not None else (224, 224)
+        
+        if split == "train":
+            return A.Compose([
+                A.HorizontalFlip(p=0.5),
+                A.OneOf([
+                    A.RandomResizedCrop(height=crop_h, width=crop_w, scale=(0.5, 1.5), ratio=(1.8, 2.2), p=1.0),
+                    A.Compose([
+                        A.LongestMaxSize(max_size=max(crop_h, crop_w), interpolation=1, p=1.0),  # keep aspect
+                        A.PadIfNeeded(min_height=crop_h, min_width=crop_w, border_mode=0, value=0, mask_value=255),
+                        A.RandomCrop(height=crop_h, width=crop_w, p=1.0),
+                    ]),
+                ], p=1.0),
+                A.SafeRotate(limit=5, border_mode=0, value=0, mask_value=255, p=0.2),
+                A.ColorJitter(0.15, 0.15, 0.15, 0.02, p=0.3),
+                A.GaussianBlur(blur_limit=(3, 7), p=0.2),
+                A.GaussNoise(var_limit=(5.0, 10.0), p=0.2),
+                A.Normalize(mean=self.mean, std=self.std),
+                ToTensorV2(),
+            ], additional_targets={'mask':'mask'})
+        elif split in ["val", "test"]:
+            return A.Compose([
+                A.Resize(height=crop_h, width=crop_w, interpolation=1, p=1.0),
+                A.Normalize(mean=self.mean, std=self.std),
+                ToTensorV2(),
+            ], additional_targets={'mask':'mask'})
+        else:
+            raise NotImplementedError

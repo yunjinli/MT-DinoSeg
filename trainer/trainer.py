@@ -1765,7 +1765,7 @@ class MultitaskTrainer(Trainer):
                 self.config.num_class_dict[t],
                 matcher=matcher,
                 weight_dict=weight_dict,
-                eos_coef=no_object_weight,
+                eos_coef=no_object_weight[t],
                 losses=losses,
                 num_points=self.config.model.decoder.train_num_points,
                 oversample_ratio=self.config.model.decoder.oversample_ratio,

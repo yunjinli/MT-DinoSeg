@@ -54,7 +54,8 @@ class MultitaskMask2FormerHeadConfig(DecoderConfig):
     # Loss parameters:
     deep_supervision: bool = True
     # no_object_weight: float = 1.0
-    no_object_weight: float = 0.1
+    # no_object_weight: float = 0.1
+    no_object_weight: Dict = field(default_factory=lambda: {'temp': 0.1})
     class_weight: float = 2.0
     dice_weight: float = 5.0
     mask_weight: float = 5.0
