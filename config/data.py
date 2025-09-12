@@ -857,7 +857,7 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
             return A.Compose([
                 A.HorizontalFlip(p=0.5),
                 A.OneOf([
-                    A.RandomResizedCrop(height=crop_h, width=crop_w, scale=(0.5, 1.5), ratio=(1.8, 2.2), p=1.0),
+                    A.RandomResizedCrop(height=crop_h, width=crop_w, scale=(0.5, 1.0), ratio=(1.8, 2.2), p=1.0),
                     A.Compose([
                         A.LongestMaxSize(max_size=max(crop_h, crop_w), interpolation=1, p=1.0),  # keep aspect
                         A.PadIfNeeded(min_height=crop_h, min_width=crop_w, border_mode=0, value=0, mask_value=255),

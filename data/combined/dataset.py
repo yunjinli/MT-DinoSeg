@@ -140,6 +140,7 @@ class BDD100kR2S100k(Dataset):
         if index < len(self.image_paths_bdd):
             ## is BDD100k
             image = Image.open(self.image_paths_bdd[index])
+            image = np.array(image)
             mask = Image.open(self.label_paths_bdd[index])
             orig_size = mask.size
 
@@ -153,7 +154,8 @@ class BDD100kR2S100k(Dataset):
 
             out = self.apply_aug_with_retry(image, mask)
             image = out["image"]                # tensor CxHxW (from ToTensorV2)
-            mask = torch.as_tensor(out["mask"], dtype=torch.long)
+            # mask = torch.as_tensor(out["mask"], dtype=torch.long)
+            mask = np.array(out["mask"]).astype(int)
             
             if self.seg_type == "semantic_segmentation":
                 mask = torch.tensor(mask, dtype=torch.long) 
@@ -183,6 +185,7 @@ class BDD100kR2S100k(Dataset):
                 raise ValueError(f"Unsupported task_type: {self.seg_type}")
         else:
             image = Image.open(self.image_paths_r2s[index - len(self.image_paths_bdd)])
+            image = np.array(image)
             mask = Image.open(self.label_paths_r2s[index - len(self.image_paths_bdd)])
             orig_size = mask.size
 
@@ -197,8 +200,8 @@ class BDD100kR2S100k(Dataset):
 
             out = self.apply_aug_with_retry(image, mask)
             image = out["image"]                # tensor CxHxW (from ToTensorV2)
-            mask = torch.as_tensor(out["mask"], dtype=torch.long)
-            
+            # mask = torch.as_tensor(out["mask"], dtype=torch.long)
+            mask = np.array(out["mask"]).astype(int)
             if self.seg_type == "semantic_segmentation":
                 mask = torch.tensor(mask, dtype=torch.long) 
                 return image, mask

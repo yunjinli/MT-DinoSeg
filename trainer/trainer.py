@@ -191,7 +191,7 @@ class Trainer:
                 self.config.data.num_classes,
                 matcher=matcher,
                 weight_dict=weight_dict,
-                eos_coef=no_object_weight,
+                eos_coef=list(no_object_weight.values())[0],
                 losses=losses,
                 num_points=self.config.model.decoder.train_num_points,
                 oversample_ratio=self.config.model.decoder.oversample_ratio,
