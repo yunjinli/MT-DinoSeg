@@ -138,17 +138,41 @@ for task_name in config.tasks:
 
     # Example: class names and colors (update these for your dataset)
     class_colors = label_colors_list
-    plt.savefig(f'{model_name}_{image_name}_{task_name}.png')
-    fig, ax = plt.subplots(figsize=(6, 2))
+    # Change layout to 2 rows: 1st row for images, 2nd row for legend (spanning all columns)
+    fig.clf()  # Clear the current figure to redefine the layout
+    gs = fig.add_gridspec(2, 3, height_ratios=[10, 1])
+
+    # Redraw the three images in the first row
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax1.imshow(image_np)
+    ax1.set_title("Original Image")
+    ax1.axis('off')
+
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax2.imshow(image_np)
+    ax2.imshow(pred_colored, alpha=0.5)
+    ax2.set_title("Prediction Overlay")
+    ax2.axis('off')
+
+    ax3 = fig.add_subplot(gs[0, 2])
+    ax3.imshow(pred_colored)
+    ax3.set_title("Predicted Mask")
+    ax3.axis('off')
+    # Legend in the bottom row, spanning all columns
+    # Move the legend down by increasing the bottom margin and adjusting subplot spacing
+    ax4 = fig.add_subplot(gs[1, :])
     for idx, (name, color) in enumerate(zip(class_names, class_colors)):
-        ax.bar(idx, 1, color=np.array(color)/255, edgecolor='k')
-    ax.set_xticks(range(len(class_names)))
-    ax.set_xticklabels(class_names, rotation=45, ha='right')
-    ax.set_yticks([])
-    ax.set_title('Legend: Color to Class Name')
+        ax4.bar(idx, 1, color=np.array(color)/255, edgecolor='k', width=1)
+    ax4.set_xticks(range(len(class_names)))
+    ax4.set_xticklabels(class_names, rotation=90, ha='center', fontsize=10)
+    ax4.set_yticks([])
+    ax4.set_title('Legend', fontsize=12)
+    ax4.set_xlim(-0.5, len(class_names)-0.5)
+    ax4.tick_params(axis='x', length=0)
+    # plt.tight_layout(rect=[0, 0.08, 1, 1])  # Increase bottom margin (0.08)
     plt.tight_layout()
-    # plt.show()
-    plt.savefig(f'{model_name}_{image_name}_{task_name}_legend.png')
+    plt.subplots_adjust(hspace=0.2)         # Increase vertical space between rows
+    plt.savefig(f'{model_name}_{image_name}_{task_name}.png')
 
 import random
 
@@ -249,15 +273,39 @@ ax3.imshow(pred_colored)
 ax3.set_title("Predicted Mask")
 ax3.axis('off')
 
-plt.savefig(f'{model_name}_{image_name}_fused.png')
-# Legend
-fig, ax = plt.subplots(figsize=(10, 2))
+# Change layout to 2 rows: 1st row for images, 2nd row for legend (spanning all columns)
+fig.clf()  # Clear the current figure to redefine the layout
+gs = fig.add_gridspec(2, 3, height_ratios=[10, 1])
+
+# Redraw the three images in the first row
+ax1 = fig.add_subplot(gs[0, 0])
+ax1.imshow(image_np)
+ax1.set_title("Original Image")
+ax1.axis('off')
+
+ax2 = fig.add_subplot(gs[0, 1])
+ax2.imshow(image_np)
+ax2.imshow(pred_colored, alpha=0.5)
+ax2.set_title("Prediction Overlay")
+ax2.axis('off')
+
+ax3 = fig.add_subplot(gs[0, 2])
+ax3.imshow(pred_colored)
+ax3.set_title("Predicted Mask")
+ax3.axis('off')
+
+# Legend in the bottom row, spanning all columns
+# Move the legend down by increasing the bottom margin and adjusting subplot spacing
+ax4 = fig.add_subplot(gs[1, :])
 for idx, (name, color) in enumerate(zip(unified_class_names, new_unified_label_colors)):
-    ax.bar(idx, 1, color=np.array(color)/255, edgecolor='k')
-ax.set_xticks(range(len(unified_class_names)))
-ax.set_xticklabels(unified_class_names, rotation=45, ha='right', fontsize=8)
-ax.set_yticks([])
-ax.set_title('Legend: Color to Class Name')
+    ax4.bar(idx, 1, color=np.array(color)/255, edgecolor='k', width=1)
+ax4.set_xticks(range(len(unified_class_names)))
+ax4.set_xticklabels(unified_class_names, rotation=90, ha='center', fontsize=10)
+ax4.set_yticks([])
+ax4.set_title('Legend', fontsize=12)
+ax4.set_xlim(-0.5, len(unified_class_names)-0.5)
+ax4.tick_params(axis='x', length=0)
+# plt.tight_layout(rect=[0, 0.08, 1, 1])  # Increase bottom margin (0.08)
 plt.tight_layout()
-# plt.show()
+plt.subplots_adjust(hspace=0.2)         # Increase vertical space between rows
 plt.savefig(f'{model_name}_{image_name}_fused_legend.png')
