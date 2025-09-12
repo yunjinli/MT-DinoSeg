@@ -10,6 +10,7 @@ from torchvision.transforms import InterpolationMode
 import numpy as np
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+import cv2
 
 DataRegistry = ConfigRegistry[DataConfig]("DataRegistry")
 
@@ -857,17 +858,27 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
             return A.Compose([
                 A.HorizontalFlip(p=0.5),
                 A.OneOf([
-                    A.RandomResizedCrop(height=crop_h, width=crop_w, scale=(0.5, 1.0), ratio=(1.8, 2.2), p=1.0),
+                    A.RandomResizedCrop(height=crop_h, width=crop_w, scale=(0.1, 1.0), ratio=(1.8, 2.2), p=1.0),
                     A.Compose([
                         A.LongestMaxSize(max_size=max(crop_h, crop_w), interpolation=1, p=1.0),  # keep aspect
-                        A.PadIfNeeded(min_height=crop_h, min_width=crop_w, border_mode=0, value=0, mask_value=255),
+                        A.PadIfNeeded(min_height=crop_h, min_width=crop_w, border_mode=0, value=0, mask_value=self.ignore_index),
                         A.RandomCrop(height=crop_h, width=crop_w, p=1.0),
                     ]),
                 ], p=1.0),
-                A.SafeRotate(limit=5, border_mode=0, value=0, mask_value=255, p=0.2),
+                A.Affine(
+                    scale=(1.0, 1.0),
+                    translate_percent=(0.0, 0.0),
+                    rotate=(-5, 5),
+                    interpolation=cv2.INTER_LINEAR,          # image
+                    mask_interpolation=cv2.INTER_NEAREST,    # MASK
+                    mode=cv2.BORDER_CONSTANT,
+                    cval=(0, 0, 0),                          # image fill (RGB)
+                    cval_mask=self.ignore_index,                        # MASK fill
+                    p=0.2,
+                ),
                 A.ColorJitter(0.15, 0.15, 0.15, 0.02, p=0.3),
                 A.GaussianBlur(blur_limit=(3, 7), p=0.2),
-                A.GaussNoise(var_limit=(5.0, 10.0), p=0.2),
+                # A.GaussNoise(var_limit=(5.0, 10.0), p=0.2),
                 A.Normalize(mean=self.mean, std=self.std),
                 ToTensorV2(),
             ], additional_targets={'mask':'mask'})

@@ -157,6 +157,30 @@ class BDD100kR2S100k(Dataset):
             # mask = torch.as_tensor(out["mask"], dtype=torch.long)
             mask = np.array(out["mask"]).astype(int)
             
+            if False: ## For testing augmentation
+                # Denormalize image if needed and show image and mask side by side in one window
+                img_show = image.cpu().numpy()  # CxHxW -> HxWxC
+                mean = torch.tensor(np.array([0.485, 0.456, 0.406])).view(3, 1, 1).numpy()
+                std = torch.tensor(np.array([0.229, 0.224, 0.225])).view(3, 1, 1).numpy()
+                image_denorm = img_show * std + mean
+                image_np = image_denorm.transpose(1, 2, 0)
+                image_np = np.clip(image_np, 0, 1)
+                image_pil = Image.fromarray((image_np * 255).astype(np.uint8))
+                img_show = np.array(image_pil).astype(np.float32) / 255.0
+
+                mask_color = np.zeros((mask.shape[0], mask.shape[1], 3))
+                for class_idx in range(len(self.label_colors_list_bdd)):
+                    class_mask = mask == class_idx
+                    mask_color[class_mask] = np.array(self.label_colors_list_bdd[class_idx])
+                mask_color = Image.fromarray((mask_color * 255).astype(np.uint8))
+                mask_color = np.array(mask_color).astype(np.float32) / 255.0
+                
+                combined = np.concatenate([img_show, mask_color], axis=1)
+                # Use a fixed window name and destroy previous window before showing new image
+                window_name = "Augmented Image | Mask"
+                cv2.imshow(window_name, cv2.cvtColor(combined, cv2.COLOR_RGB2BGR))
+                cv2.waitKey(1)
+            
             if self.seg_type == "semantic_segmentation":
                 mask = torch.tensor(mask, dtype=torch.long) 
                 return image, mask
