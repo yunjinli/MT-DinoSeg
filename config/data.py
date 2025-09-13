@@ -818,33 +818,6 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
         else:
             raise NotImplementedError
         
-    # def get_transforms(self):
-    #     """Get transforms based on configuration."""
-    #     try:
-    #         print("Input size: ", self.input_size)
-    #         print(f"Mean: {self.mean}, Std: {self.std}")
-    #         image_transform = T.Compose([ 
-    #             T.Resize(self.input_size),
-    #             T.ToTensor(),
-    #             T.Normalize(mean=self.mean, std=self.std),
-    #         ])
-            
-    #         mask_transform = T.Compose([
-    #             T.Resize(self.input_size, interpolation=InterpolationMode.NEAREST)
-    #         ])
-    #     except:
-    #         print("Input size not specified, use (224, 224) ...")
-    #         image_transform = T.Compose([ 
-    #             T.Resize((224, 224)),
-    #             T.ToTensor(),
-    #             T.Normalize(mean=self.mean, std=self.std),
-    #         ])
-            
-    #         mask_transform = T.Compose([
-    #             T.Resize((224, 224), interpolation=InterpolationMode.NEAREST)
-    #         ])
-        
-    #     return image_transform, mask_transform
     def get_transforms(self, split="train"):
         """Get transforms based on configuration."""
         # photometric = A.ColorJitter(0.2, 0.2, 0.2, 0.02, p=0.5) if dataset=="bdd" \
@@ -890,3 +863,341 @@ class SemsegBDD100kR2S100kConfig(DataConfig):
             ], additional_targets={'mask':'mask'})
         else:
             raise NotImplementedError
+
+@DataRegistry.register("semseg_bdd100k_r2s100k_two_view_aug")
+@dataclass
+class SemsegBDD100kR2S100kTwoViewAugConfig(DataConfig):
+    input_size: Tuple[int, int] = None
+    dataset_name: str = "semseg_bdd100k_r2s100k_two_view_aug"
+    # dataset_path = None
+    # dataset_path: str = "/home/phd_li/dataset/bdd100k"
+    # dataset_path_bdd = "/home/phd_li/dataset/bdd100k"
+    # dataset_path_r2s = "/home/phd_li/dataset/r2s100k"
+    dataset_path: str = "/mnt/sda/bdd100k"
+    dataset_path_bdd = "/mnt/sda/bdd100k"
+    dataset_path_r2s = "/mnt/sda/r2s100k"
+    
+    task_type: str = "semantic_segmentation"  # Can be: semantic_segmentation, instance_segmentation, panoptic_segmentation    
+    
+    mean: List[float] = field(default_factory=lambda: [0.485, 0.456, 0.406])
+    std: List[float] = field(default_factory=lambda: [0.229, 0.224, 0.225])
+    
+    # R2S100k
+    _raw_num_classes_r2s: int = 15
+    _raw_class_names_r2s: List[str] = field(default_factory=lambda: [
+        'bg', 'wet_road_region', 'road_region', 'mud', 'earthen_patch', 
+        'mountain-stones', 'dirt', 'vegitation_misc', 'distressed_patch', 
+        'drainage_grate', 'water_puddle', 'speed_breaker', 'misc', 
+        'gravel_patch', 'concrete_material'
+    ])
+    _raw_label_colors_list_r2s: List[Tuple[int, int, int]] = field(default_factory=lambda: [
+        (0, 0, 0),          # BG
+        (2, 79, 59),        # Wet_Road_Region
+        (17, 163, 74),      # Road_region
+        (112, 84, 62),      # Mud
+        (225, 148, 79),     # Earthen_Patch
+        (120, 114, 104),    # Mountain-stones
+        (166, 130, 95),     # Dirt
+        (128, 222, 91),     # Vegitation_Misc
+        (119, 61, 128),     # Distressed_Patch
+        (93, 86, 176),      # Drainage_Grate
+        (140, 160, 222),    # Water_puddle
+        (234, 133, 5),      # Speed_Breaker
+        (156, 28, 39),      # Misc 
+        (99, 122, 130),     # Gravel_Patch 
+        (123, 43, 31),      # Concrete_Material
+    ])
+
+    # Data loading parameters
+    num_workers: int = 8
+    persistent_workers: bool = True
+    pin_memory: bool = True
+    prefetch_factor: int = 4
+    drop_last: bool = True
+
+    ignore_index = 255
+    # num_classes = None
+    # class_names = None
+    # label_colors_list = None
+    tasks: List[str] = field(default_factory=lambda: ['bdd100k', 'r2s100k'])
+    
+    def get_manual_superset_color_and_names(self):
+        classnames_superset = [
+        # fine-grained road surface (from R2S)
+        "road_region", "wet_road_region", "water_puddle", "mud", "earthen_patch",
+        "dirt", "gravel_patch", "distressed_patch", "drainage_grate", "speed_breaker", "misc",
+        # rest from BDD
+        "sidewalk", "building", "wall", "fence", "pole", "traffic_light", "traffic_sign",
+        "vegetation", "terrain", "sky", "person", "rider", "car", "truck", "bus",
+        "train", "motorcycle", "bicycle",
+        ]
+        color_map_superset = [
+            # fine-grained road surface (from R2S)
+            (17, 163, 74),      # road_region
+            (2, 79, 59),        # wet_road_region
+            (140, 160, 222),    # water_puddle
+            (112, 84, 62),      # mud
+            (225, 148, 79),     # earthen_patch
+            (166, 130, 95),     # dirt
+            (99, 122, 130),     # gravel_patch
+            (119, 61, 128),     # distressed_patch
+            (93, 86, 176),      # drainage_grate
+            (234, 133, 5),      # speed_breaker
+            (156, 28, 39),      # misc
+            # rest from BDD
+            (244, 35, 232),     # sidewalk
+            (70, 70, 70),       # building
+            (102, 102, 156),    # wall
+            (190, 153, 153),    # fence
+            (153, 153, 153),    # pole
+            (250, 170, 30),     # traffic_light
+            (220, 220, 0),      # traffic_sign
+            (107, 142, 35),     # vegetation
+            (152, 251, 152),    # terrain
+            (70, 130, 180),     # sky
+            (220, 20, 60),      # person
+            (255, 0, 0),        # rider
+            (0, 0, 142),        # car
+            (0, 0, 70),         # truck
+            (0, 60, 100),       # bus
+            (0, 80, 100),       # train
+            (0, 0, 230),        # motorcycle
+            (119, 11, 32),      # bicycle
+        ]
+        # --- Define your dataset label orders once (adjust to your exact loaders) ---
+        bdd_order = [
+            "road","sidewalk","building","wall","fence","pole","traffic_light","traffic_sign",
+            "vegetation","terrain","sky","person","rider","car","truck","bus","train","motorcycle","bicycle"
+        ]
+        r2s_order = [
+            # Use your true R2S class order here
+            # "bg", "wet_road_region","road_region","mud","earthen_patch","mountain-stones",
+            "wet_road_region","road_region","mud","earthen_patch","mountain-stones",
+            "dirt","vegitation_misc","distressed_patch","drainage_grate","water_puddle",
+            "speed_breaker","misc","gravel_patch","concrete_material"
+            # (if R2S has 16, add the missing one here)
+        ]
+
+        # --- Canonicalize name quirks so mapping is robust ---
+        def canon(name: str):
+            return name.replace("-", "_").replace("vegitation", "vegetation")
+
+        sup2idx = {canon(n): i for i, n in enumerate(classnames_superset)}
+
+        # --- Dataset -> Superset allowed sets (for training) ---
+        bdd2sup_names = {
+            "road": [
+                "road_region","wet_road_region","water_puddle","mud","earthen_patch",
+                "dirt","gravel_patch","distressed_patch","drainage_grate","speed_breaker","misc",
+            ],
+            "sidewalk": ["sidewalk"],
+            "building": ["building"],
+            "wall": ["wall"],
+            "fence": ["fence"],
+            "pole": ["pole"],
+            "traffic_light": ["traffic_light"],
+            "traffic_sign": ["traffic_sign"],
+            "vegetation": ["vegetation"],
+            "terrain": ["terrain"],
+            "sky": ["sky"],
+            "person": ["person"],
+            "rider": ["rider"],
+            "car": ["car"],
+            "truck": ["truck"],
+            "bus": ["bus"],
+            "train": ["train"],
+            "motorcycle": ["motorcycle"],
+            "bicycle": ["bicycle"],
+        }
+        r2s2sup_names = {
+            # "bg": [
+            #     'building', 'wall', 'fence', 'pole', 'traffic_light', 'traffic_sign',
+            #     'sky', 'person', 'rider', 'car', 'truck', 'bus', 'train', 'motorcycle', 'bicycle',
+            #     ],  # ignore or low weight
+            "wet_road_region": ["wet_road_region"],
+            "road_region": ["road_region"],
+            "mud": ["mud"],
+            "earthen_patch": ["earthen_patch"],
+            "mountain-stones": ["terrain"],            # or a dedicated class if you kept it
+            "dirt": ["dirt"],
+            "vegitation_misc": ["vegetation"],
+            "distressed_patch": ["distressed_patch"],
+            "drainage_grate": ["drainage_grate"],
+            "water_puddle": ["water_puddle"],
+            "speed_breaker": ["speed_breaker"],
+            "misc": ["misc"],
+            "gravel_patch": ["gravel_patch"],
+            "concrete_material": ["sidewalk"],         # curb/sidewalk
+            # add any missing R2S label if needed
+        }
+
+        # Convert to index lists for set-aware loss
+        def to_idx_lists(order, mapping_dict):
+            idx_lists = []
+            for name in order:
+                S_names = mapping_dict.get(name, [])
+                idx_lists.append([sup2idx[canon(s)] for s in S_names if canon(s) in sup2idx])
+            return idx_lists
+
+        map_bdd2sup_idx = to_idx_lists(bdd_order, bdd2sup_names)
+        map_r2s2sup_idx = to_idx_lists(r2s_order, r2s2sup_names)
+
+        # --- Superset -> Dataset projection matrices for eval ---
+        
+        def build_proj(order, idx_lists, C_sup):
+            M = np.zeros((len(order), C_sup), dtype=np.float32)
+            for i, S in enumerate(idx_lists):
+                for j in S:
+                    M[i, j] = 1.0
+            return M
+
+        M_sup_to_bdd = build_proj(bdd_order, map_bdd2sup_idx, len(classnames_superset))
+        M_sup_to_r2s = build_proj(r2s_order, map_r2s2sup_idx, len(classnames_superset))
+
+        # Sanity checks (optional)
+        # assert M_sup_to_bdd.shape[1] == len(classnames_superset)
+
+        return {
+            "sup_names": classnames_superset,
+            "sup_colors": color_map_superset,
+            "bdd_order": bdd_order,
+            "r2s_order": r2s_order,
+            "map_bdd2sup_idx": map_bdd2sup_idx,
+            "map_r2s2sup_idx": map_r2s2sup_idx,
+            "M_sup_to_bdd": M_sup_to_bdd,   # use: P_bdd = P_sup @ M_sup_to_bdd.T
+            "M_sup_to_r2s": M_sup_to_r2s,   # use: P_r2s = P_sup @ M_sup_to_r2s.T
+        }
+        
+    def parse_color_and_names(self, task):
+        if task == 'r2s100k':
+        #    return self._raw_label_colors_list_r2s, self._raw_class_names_r2s
+            return [color for i, color in enumerate(self._raw_label_colors_list_r2s) if i != 0], [cls for cls in self._raw_class_names_r2s if cls != 'bg']
+        elif task == 'bdd100k':
+            trainid_colors = []
+            labels = BDD100K_ANNOTATIONs['sem_seg']
+            for idx, label in enumerate(labels):
+                if label.trainId != 255:
+                    trainid_colors.append({'trainId': label.trainId, 'color': label.color, 'name': label.name})
+            label_colors_list = [None] * len(trainid_colors)
+            class_names = [None] * len(trainid_colors)
+
+            for label in trainid_colors:
+                label_colors_list[label['trainId']] = label['color']
+                class_names[label['trainId']] = label['name']
+            
+            return label_colors_list, class_names
+        else:
+            raise NotImplementedError
+        
+    def get_transforms(self, split="train"):
+        """Get transforms based on configuration."""
+        # photometric = A.ColorJitter(0.2, 0.2, 0.2, 0.02, p=0.5) if dataset=="bdd" \
+        #           else A.ColorJitter(0.15, 0.15, 0.15, 0.02, p=0.3)
+        
+        # transform = {}
+        
+        crop_h, crop_w = self.input_size if self.input_size is not None else (224, 224)
+        
+        if split == "train":
+            return A.Compose([
+                A.HorizontalFlip(p=0.5),
+                A.OneOf([
+                    A.RandomResizedCrop(height=crop_h, width=crop_w, scale=(0.1, 1.0), ratio=(1.8, 2.2), p=1.0),
+                    A.Compose([
+                        A.LongestMaxSize(max_size=max(crop_h, crop_w), interpolation=1, p=1.0),  # keep aspect
+                        A.PadIfNeeded(min_height=crop_h, min_width=crop_w, border_mode=0, value=0, mask_value=self.ignore_index),
+                        A.RandomCrop(height=crop_h, width=crop_w, p=1.0),
+                    ]),
+                ], p=1.0),
+                A.Affine(
+                    scale=(1.0, 1.0),
+                    translate_percent=(0.0, 0.0),
+                    rotate=(-5, 5),
+                    interpolation=cv2.INTER_LINEAR,          # image
+                    mask_interpolation=cv2.INTER_NEAREST,    # MASK
+                    mode=cv2.BORDER_CONSTANT,
+                    cval=(0, 0, 0),                          # image fill (RGB)
+                    cval_mask=self.ignore_index,                        # MASK fill
+                    p=0.2,
+                ),
+                A.ColorJitter(0.15, 0.15, 0.15, 0.02, p=0.3),
+                A.GaussianBlur(blur_limit=(3, 7), p=0.2),
+                # A.GaussNoise(var_limit=(5.0, 10.0), p=0.2),
+                A.Normalize(mean=self.mean, std=self.std),
+                ToTensorV2(),
+            ], additional_targets={'mask':'mask'})
+        elif split in ["val", "test"]:
+            return A.Compose([
+                A.Resize(height=crop_h, width=crop_w, interpolation=1, p=1.0),
+                A.Normalize(mean=self.mean, std=self.std),
+                ToTensorV2(),
+            ], additional_targets={'mask':'mask'})
+        else:
+            raise NotImplementedError
+    
+    def get_two_view_transforms(self, split="train"):
+        """Get transforms based on configuration."""
+        
+        H, W = self.input_size if self.input_size is not None else (224, 224)
+        
+        if split == "train":
+            geom = A.ReplayCompose([
+                A.HorizontalFlip(p=0.5),
+                A.OneOf([
+                    # Keep scale narrow for stable teacher targets
+                    A.RandomResizedCrop(height=H, width=W, scale=(0.8, 1.0), ratio=(1.6, 2.2), p=1.0),
+                    A.Compose([
+                        A.LongestMaxSize(max_size=max(H, W), interpolation=cv2.INTER_LINEAR, p=1.0),
+                        A.PadIfNeeded(min_height=H, min_width=W,
+                                    border_mode=cv2.BORDER_CONSTANT, value=0, mask_value=self.ignore_index),
+                        A.RandomCrop(height=H, width=W, p=1.0),
+                    ]),
+                ], p=1.0),
+                A.Affine(
+                    scale=(1.0, 1.0),
+                    translate_percent=(0.0, 0.02),
+                    rotate=(-2, 2),
+                    interpolation=cv2.INTER_LINEAR,
+                    mask_interpolation=cv2.INTER_NEAREST,
+                    mode=cv2.BORDER_CONSTANT,
+                    cval=(0, 0, 0),
+                    cval_mask=self.ignore_index,
+                    p=0.2,
+                ),
+            ], additional_targets={'mask': 'mask'})
+
+            weak_tail = A.Compose([
+                A.Normalize(mean=self.mean, std=self.std),
+                ToTensorV2(),
+            ], additional_targets={'mask': 'mask'})
+            
+            strong_tail = A.Compose([
+                A.ColorJitter(0.2, 0.2, 0.2, 0.02, p=0.6),
+                A.GaussianBlur(blur_limit=(3, 7), p=0.4),
+                A.GaussNoise(var_limit=(5.0, 15.0), p=0.3),
+                A.CoarseDropout(
+                    max_holes=6, max_height=H//10, max_width=W//10,
+                    fill_value=0, mask_fill_value=self.ignore_index, p=0.3
+                ),
+                A.ToGray(p=0.1),
+                A.Normalize(mean=self.mean, std=self.std),
+                ToTensorV2(),
+            ], additional_targets={'mask': 'mask'})
+        elif split in ["val", "test"]:
+            geom = A.ReplayCompose([
+                A.Resize(height=H, width=W, interpolation=1, p=1.0),
+            ], additional_targets={'mask': 'mask'})
+
+            weak_tail = A.Compose([
+                A.Normalize(mean=self.mean, std=self.std),
+                ToTensorV2(),
+            ], additional_targets={'mask': 'mask'})
+            
+            strong_tail = A.Compose([
+                A.Normalize(mean=self.mean, std=self.std),
+                ToTensorV2(),
+            ], additional_targets={'mask': 'mask'})
+        else:
+            raise NotImplementedError
+            
+        return {'geom': geom, 'weak': weak_tail, 'strong': strong_tail}

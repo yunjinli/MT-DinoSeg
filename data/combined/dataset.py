@@ -8,7 +8,309 @@ from typing import Tuple, List
 import cv2 
 import os
 from typing import Dict
+import albumentations as A
 
+class BDD100kR2S100kTwoViewAug(Dataset):
+    def __init__(self, 
+                        image_base_bdd: str, 
+                        image_base_r2s: str, 
+                        label_base_bdd: str, 
+                        label_base_r2s: str, 
+                        transform,
+                        label_colors_list_bdd, 
+                        label_colors_list_r2s, 
+                        class_names_bdd, 
+                        class_names_r2s, 
+                        split, 
+                        seg_type,
+                        ignore_index,
+                        ):
+        ## Loading path from BDD100k
+        self.image_paths_bdd = glob.glob(f"{image_base_bdd}/*")
+        self.label_paths_bdd = glob.glob(f"{label_base_bdd}/*")
+        self.image_paths_bdd.sort()
+        self.label_paths_bdd.sort()
+        self.label_colors_list_bdd = label_colors_list_bdd
+        self.class_names_bdd = class_names_bdd
+        self.class_values_bdd = [self.class_names_bdd.index(cls.lower()) for cls in self.class_names_bdd]
+
+        ## Loading path from R2S100k
+        self.image_paths_r2s = glob.glob(f"{image_base_r2s}/*")
+        self.label_paths_r2s = glob.glob(f"{label_base_r2s}/*")
+        self.image_paths_r2s.sort()
+        self.label_paths_r2s.sort()
+        self.label_colors_list_r2s = label_colors_list_r2s
+        self.class_names_r2s = class_names_r2s
+        self.class_values_r2s = [self.class_names_r2s.index(cls.lower()) for cls in self.class_names_r2s]
+
+        # print(self.class_names_r2s)
+        # print(self.class_values_r2s)
+        for img_path, label_path in zip(self.image_paths_bdd, self.label_paths_bdd):
+            assert os.path.basename(img_path).split('.')[0] == os.path.basename(label_path).split('.')[0]
+
+        for img_path, label_path in zip(self.image_paths_r2s, self.label_paths_r2s):
+            assert os.path.basename(img_path).split('.')[0] == os.path.basename(label_path).split('.')[0]
+
+        # self.image_transform = image_transform
+        # self.mask_transform = mask_transform
+        self.transform = transform
+        
+        self.seg_type = seg_type
+        self.ignore_index = ignore_index
+        self.split = split
+
+    def __len__(self):
+        return len(self.image_paths_bdd) + len(self.image_paths_r2s)
+    
+    def get_label_mask(self, mask, class_values, label_colors_list): 
+        """
+        This function encodes the pixels belonging to the same class
+        in the image into the same label
+        """
+        label_mask = np.ones((mask.shape[0], mask.shape[1]), dtype=np.uint8)
+        label_mask *= self.ignore_index
+        for value in class_values:
+            for ii, label in enumerate(label_colors_list):
+                if value == label_colors_list.index(label):
+                    label = np.array(label)
+                    label_mask[np.where(np.all(mask == label, axis=-1))[:2]] = ii
+        label_mask = label_mask.astype(int)
+
+        return label_mask
+    
+    def label_mask_to_color_mask(self, label_mask, label_colors_list, class_values):
+        red_map = np.zeros_like(label_mask).astype(np.uint8)
+        green_map = np.zeros_like(label_mask).astype(np.uint8)
+        blue_map = np.zeros_like(label_mask).astype(np.uint8)
+        
+        for label_num in range(0, len(label_colors_list)):
+            if label_num in class_values:
+                idx = label_mask == label_num
+                red_map[idx] = np.array(label_colors_list)[label_num, 0]
+                green_map[idx] = np.array(label_colors_list)[label_num, 1]
+                blue_map[idx] = np.array(label_colors_list)[label_num, 2]
+            
+        segmented_image = np.stack([red_map, green_map, blue_map], axis=2)
+        return segmented_image
+
+    def semantic_to_instances(self, semantic_mask: np.ndarray) -> Tuple[List[int], List[np.ndarray]]:
+        labels = []
+        masks = []
+        
+        unique_classes = np.unique(semantic_mask)
+        
+        for class_idx in unique_classes:
+            if class_idx == self.ignore_index:
+                continue
+            # Create binary mask for this class
+            class_mask = (semantic_mask == class_idx).astype(np.uint8)
+            labels.append(int(class_idx))
+            masks.append(class_mask.astype(np.float32))
+        
+        return labels, masks
+
+    def instances_to_semantic(self, targets: List[dict], ignore_index: int = 255):
+        batch_size = len(targets)
+        _, H, W = targets[0]['masks'].shape
+        masks_list = torch.ones((batch_size, H, W))
+        masks_list *= ignore_index
+
+        for i, target in enumerate(targets):
+            labels = target['labels']
+            masks = target['masks']
+            for label, mask in zip(labels, masks):
+                masks_list[i][mask.bool()] = label
+
+        return masks_list
+    
+    def apply_two_view_aug(self, image, mask):
+        out_g = self.transform['geom'](image=image, mask=mask) if self.transform['geom'] is not None else {"image": image, "mask": mask}
+        replay = out_g["replay"]
+        out_w = self.transform['weak'](image=out_g["image"], mask=out_g["mask"])
+        
+        out_gs = A.ReplayCompose.replay(replay, image=image, mask=mask)
+        out_s = self.transform['strong'](image=out_gs["image"], mask=out_gs["mask"])
+        
+        image_w = out_w["image"]
+        image_s = out_s["image"]
+        
+        mask = np.array(out_w["mask"]).astype(int)
+        
+        return image_w, image_s, mask
+        
+    def __getitem__(self, index):
+        ## Identity which dataset is used
+        if index < len(self.image_paths_bdd):
+            ## is BDD100k
+            image = Image.open(self.image_paths_bdd[index])
+            image = np.array(image)
+            mask = Image.open(self.label_paths_bdd[index])
+            orig_size = mask.size
+
+            mask = np.array(mask).astype(int)
+
+            image_w, image_s, mask = self.apply_two_view_aug(image, mask)
+            
+            if False: ## For testing augmentation
+                # Denormalize image if needed and show image and mask side by side in one window
+                img_w_show = image_w.cpu().numpy()  # CxHxW -> HxWxC
+                img_s_show = image_s.cpu().numpy()  # CxHxW -> HxWxC
+                mean = torch.tensor(np.array([0.485, 0.456, 0.406])).view(3, 1, 1).numpy()
+                std = torch.tensor(np.array([0.229, 0.224, 0.225])).view(3, 1, 1).numpy()
+                image_w_denorm = img_w_show * std + mean
+                image_s_denorm = img_s_show * std + mean
+                
+                image_w_np = image_w_denorm.transpose(1, 2, 0)
+                image_s_np = image_s_denorm.transpose(1, 2, 0)
+                
+                image_w_np = np.clip(image_w_np, 0, 1)
+                image_s_np = np.clip(image_s_np, 0, 1)
+                
+                image_w_pil = Image.fromarray((image_w_np * 255).astype(np.uint8))
+                image_s_pil = Image.fromarray((image_s_np * 255).astype(np.uint8))
+                
+                img_w_show = np.array(image_w_pil).astype(np.float32) / 255.0
+                img_s_show = np.array(image_s_pil).astype(np.float32) / 255.0
+
+                mask_color = np.zeros((mask.shape[0], mask.shape[1], 3))
+                for class_idx in range(len(self.label_colors_list_bdd)):
+                    class_mask = mask == class_idx
+                    mask_color[class_mask] = np.array(self.label_colors_list_bdd[class_idx])
+                mask_color = Image.fromarray((mask_color * 255).astype(np.uint8))
+                mask_color = np.array(mask_color).astype(np.float32) / 255.0
+                
+                combined = np.concatenate([img_w_show, img_s_show, mask_color], axis=1)
+                # Use a fixed window name and destroy previous window before showing new image
+                window_name = "Weak Augmented Image | Strong Augmented Image | Mask"
+                cv2.imshow(window_name, cv2.cvtColor(combined, cv2.COLOR_RGB2BGR))
+                k = cv2.waitKey(1) & 0xFF        # non-blocking
+                if k in (27, ord('q')):          # ESC or q to quit
+                    raise KeyboardInterrupt 
+            
+            if self.seg_type == "semantic_segmentation":
+                mask = torch.tensor(mask, dtype=torch.long) 
+                return image_w, image_s, mask, 0
+
+            elif self.seg_type == "instance_segmentation":
+                labels, instance_masks = self.semantic_to_instances(mask)
+                # Handle case with no instances
+                if len(labels) == 0:
+                    labels = torch.zeros(0, dtype=torch.long)
+                    masks = torch.zeros(0, mask.shape[0], mask.shape[1], dtype=torch.float32)
+                else:
+                    labels = torch.tensor(labels, dtype=torch.long)
+                    masks = torch.stack([torch.from_numpy(mask) for mask in instance_masks])
+                    
+                # Create target dictionary
+                target = {
+                    "labels": labels,
+                    "masks": masks,
+                    "image_id": index,
+                    "orig_size": orig_size,  # (H, W)
+                }
+                
+                return image_w, image_s, target, 0 ## return 0 for bdd100k
+            else:
+                raise ValueError(f"Unsupported task_type: {self.seg_type}")
+        else:
+            image = Image.open(self.image_paths_r2s[index - len(self.image_paths_bdd)])
+            image = np.array(image)
+            mask = Image.open(self.label_paths_r2s[index - len(self.image_paths_bdd)])
+            orig_size = mask.size
+            
+            mask = np.array(mask)
+            mask = self.get_label_mask(mask, class_values=self.class_values_r2s, label_colors_list=self.label_colors_list_r2s)
+
+            image_w, image_s, mask = self.apply_two_view_aug(image, mask)
+            
+            if False: ## For testing augmentation
+                # Denormalize image if needed and show image and mask side by side in one window
+                img_w_show = image_w.cpu().numpy()  # CxHxW -> HxWxC
+                img_s_show = image_s.cpu().numpy()  # CxHxW -> HxWxC
+                mean = torch.tensor(np.array([0.485, 0.456, 0.406])).view(3, 1, 1).numpy()
+                std = torch.tensor(np.array([0.229, 0.224, 0.225])).view(3, 1, 1).numpy()
+                image_w_denorm = img_w_show * std + mean
+                image_s_denorm = img_s_show * std + mean
+                
+                image_w_np = image_w_denorm.transpose(1, 2, 0)
+                image_s_np = image_s_denorm.transpose(1, 2, 0)
+                
+                image_w_np = np.clip(image_w_np, 0, 1)
+                image_s_np = np.clip(image_s_np, 0, 1)
+                
+                image_w_pil = Image.fromarray((image_w_np * 255).astype(np.uint8))
+                image_s_pil = Image.fromarray((image_s_np * 255).astype(np.uint8))
+                
+                img_w_show = np.array(image_w_pil).astype(np.float32) / 255.0
+                img_s_show = np.array(image_s_pil).astype(np.float32) / 255.0
+
+                mask_color = np.zeros((mask.shape[0], mask.shape[1], 3))
+                for class_idx in range(len(self.label_colors_list_r2s)):
+                    class_mask = mask == class_idx
+                    mask_color[class_mask] = np.array(self.label_colors_list_r2s[class_idx])
+                mask_color = Image.fromarray((mask_color * 255).astype(np.uint8))
+                mask_color = np.array(mask_color).astype(np.float32) / 255.0
+                
+                combined = np.concatenate([img_w_show, img_s_show, mask_color], axis=1)
+                # Use a fixed window name and destroy previous window before showing new image
+                window_name = "Weak Augmented Image | Strong Augmented Image | Mask"
+                cv2.imshow(window_name, cv2.cvtColor(combined, cv2.COLOR_RGB2BGR))
+                k = cv2.waitKey(1) & 0xFF        # non-blocking
+                if k in (27, ord('q')):          # ESC or q to quit
+                    raise KeyboardInterrupt 
+                
+            if self.seg_type == "semantic_segmentation":
+                mask = torch.tensor(mask, dtype=torch.long) 
+                return image_w, image_s, mask, 1
+
+            elif self.seg_type == "instance_segmentation":
+                labels, instance_masks = self.semantic_to_instances(mask)
+                # Handle case with no instances
+                if len(labels) == 0:
+                    labels = torch.zeros(0, dtype=torch.long)
+                    masks = torch.zeros(0, mask.shape[0], mask.shape[1], dtype=torch.float32)
+                else:
+                    labels = torch.tensor(labels, dtype=torch.long)
+                    masks = torch.stack([torch.from_numpy(mask) for mask in instance_masks])
+                    
+                # Create target dictionary
+                target = {
+                    "labels": labels,
+                    "masks": masks,
+                    "image_id": index,
+                    "orig_size": orig_size,  # (H, W)
+                }
+                
+                return image_w, image_s, target, 1
+            else:
+                raise ValueError(f"Unsupported task_type: {self.seg_type}")
+
+    @property
+    def collate_fn(self):
+        def func(batch):
+            if self.seg_type == "semantic_segmentation":
+                imgs_w = [e[0] for e in batch]
+                imgs_s = [e[1] for e in batch]
+                targets = [e[2] for e in batch]
+                dataset_ids = [e[3] for e in batch]
+                imgs_w = default_collate(imgs_w)
+                imgs_s = default_collate(imgs_s)
+                targets = default_collate(targets)
+                dataset_ids = default_collate(dataset_ids)
+
+                return imgs_w, imgs_s, targets, dataset_ids
+            elif self.seg_type == "instance_segmentation":
+                imgs_w = [e[0] for e in batch]
+                imgs_s = [e[1] for e in batch]
+                targets = [e[2] for e in batch]
+                dataset_ids = [e[3] for e in batch]
+                imgs_w = default_collate(imgs_w)
+                imgs_s = default_collate(imgs_s)
+                dataset_ids = default_collate(dataset_ids)
+
+                return imgs_w, imgs_s, targets, dataset_ids
+        return func
+    
 class BDD100kR2S100k(Dataset):
     def __init__(self, 
                         image_base_bdd: str, 
@@ -226,6 +528,31 @@ class BDD100kR2S100k(Dataset):
             image = out["image"]                # tensor CxHxW (from ToTensorV2)
             # mask = torch.as_tensor(out["mask"], dtype=torch.long)
             mask = np.array(out["mask"]).astype(int)
+            
+            if False: ## For testing augmentation
+                # Denormalize image if needed and show image and mask side by side in one window
+                img_show = image.cpu().numpy()  # CxHxW -> HxWxC
+                mean = torch.tensor(np.array([0.485, 0.456, 0.406])).view(3, 1, 1).numpy()
+                std = torch.tensor(np.array([0.229, 0.224, 0.225])).view(3, 1, 1).numpy()
+                image_denorm = img_show * std + mean
+                image_np = image_denorm.transpose(1, 2, 0)
+                image_np = np.clip(image_np, 0, 1)
+                image_pil = Image.fromarray((image_np * 255).astype(np.uint8))
+                img_show = np.array(image_pil).astype(np.float32) / 255.0
+
+                mask_color = np.zeros((mask.shape[0], mask.shape[1], 3))
+                for class_idx in range(len(self.label_colors_list_bdd)):
+                    class_mask = mask == class_idx
+                    mask_color[class_mask] = np.array(self.label_colors_list_bdd[class_idx])
+                mask_color = Image.fromarray((mask_color * 255).astype(np.uint8))
+                mask_color = np.array(mask_color).astype(np.float32) / 255.0
+                
+                combined = np.concatenate([img_show, mask_color], axis=1)
+                # Use a fixed window name and destroy previous window before showing new image
+                window_name = "Augmented Image | Mask"
+                cv2.imshow(window_name, cv2.cvtColor(combined, cv2.COLOR_RGB2BGR))
+                cv2.waitKey(1)
+                
             if self.seg_type == "semantic_segmentation":
                 mask = torch.tensor(mask, dtype=torch.long) 
                 return image, mask

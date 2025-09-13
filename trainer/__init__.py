@@ -1,3 +1,3 @@
-from .trainer import Trainer, MultitaskTrainer
+from .trainer import Trainer, MultiDatasetTrainer, MultiDatasetCrossSupTrainer
 
-__all__ = ['Trainer', 'MultitaskTrainer']
+__all__ = ['Trainer', 'MultiDatasetTrainer', 'MultiDatasetCrossSupTrainer']

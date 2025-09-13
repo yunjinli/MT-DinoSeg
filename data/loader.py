@@ -84,6 +84,7 @@ def get_data_loaders(
             val_dataset,
             batch_size=config.training.batch_size,
             sampler=val_sampler,
+            # shuffle=True,
             shuffle=False,
             num_workers=config.data.num_workers,
             pin_memory=config.data.pin_memory,

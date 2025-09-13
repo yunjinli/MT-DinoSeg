@@ -13,7 +13,7 @@ from torchinfo import summary
 from config import load_config_from_args, ModelRegistry, EncoderRegistry, DecoderRegistry, Config
 from models import create_model
 from data import get_data_loaders
-from trainer import Trainer, MultitaskTrainer
+from trainer import Trainer, MultiDatasetTrainer, MultiDatasetCrossSupTrainer
 from utility.distributed import (
     setup_distributed, 
     cleanup_distributed, 
@@ -207,19 +207,33 @@ def main():
             print(f"- Number of training samples: {len(train_loader.dataset)}")
             print(f"- Number of validation samples: {len(val_loader.dataset)}")
         # Create trainer
-        if config.experiment_name in ['semseg_lane_drivable_bdd100k', 'semseg_bdd100k_r2s100k']:
-            trainer = MultitaskTrainer(
-                model=model,
-                config=config,
-                train_loader=train_loader,
-                val_loader=val_loader,
-                device=device,
-                run_id=run_id,
-                resume_from=resume_from,
-                resume_training=resume_training,
-                rank=rank,
-                world_size=world_size
-            )
+        if config.multidataset:
+            if config.cross_task_supervision:
+                trainer = MultiDatasetCrossSupTrainer(
+                    model=model,
+                    config=config,
+                    train_loader=train_loader,
+                    val_loader=val_loader,
+                    device=device,
+                    run_id=run_id,
+                    resume_from=resume_from,
+                    resume_training=resume_training,
+                    rank=rank,
+                    world_size=world_size,
+                )
+            else:
+                trainer = MultiDatasetTrainer(
+                    model=model,
+                    config=config,
+                    train_loader=train_loader,
+                    val_loader=val_loader,
+                    device=device,
+                    run_id=run_id,
+                    resume_from=resume_from,
+                    resume_training=resume_training,
+                    rank=rank,
+                    world_size=world_size
+                )
         else:
             trainer = Trainer(
                 model=model,

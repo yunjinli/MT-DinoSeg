@@ -8,7 +8,7 @@ from pathlib import Path
 from config.base import DataConfig
 from .r2s100k.dataset import R2S100k
 from .bdd100k.dataset import SemsegBDD100k, MultitaskBDD100k
-from .combined.dataset import BDD100kR2S100k
+from .combined.dataset import BDD100kR2S100k, BDD100kR2S100kTwoViewAug
 
 # Registry of dataset implementations
 DATASET_REGISTRY = {
@@ -16,10 +16,65 @@ DATASET_REGISTRY = {
     'semseg_bdd100k': SemsegBDD100k,
     'multitask_bdd100k': MultitaskBDD100k,
     'semseg_bdd100k_r2s100k': BDD100kR2S100k,
+    'semseg_bdd100k_r2s100k_two_view_aug': BDD100kR2S100kTwoViewAug,
     # Add other datasets here
 }
 
 
+def get_params_semseg_bdd100k_r2s100k_two_view_aug(config, split):
+    transform = config.get_two_view_transforms(split=split)
+    # Get dataset path
+    base_path_bdd = Path(config.dataset_path_bdd)
+    base_path_r2s = Path(config.dataset_path_r2s)
+
+    if split == "train":
+        image_base_bdd = base_path_bdd / "images/10k/train"
+        label_base_bdd = base_path_bdd / "labels/sem_seg/masks/train"
+        image_base_r2s = base_path_r2s / "train"
+        label_base_r2s = base_path_r2s / "Train-Labels"
+    elif split == "val":
+        image_base_bdd = base_path_bdd / "images/10k/val"
+        label_base_bdd = base_path_bdd / "labels/sem_seg/masks/val"
+        image_base_r2s = base_path_r2s / "val"
+        label_base_r2s = base_path_r2s / "val_labels"
+    elif split == "test":
+        print(f"Warning: BDD100k doesn't have an official test dataset")
+        print(f"Warning: Loading BDD100K validation set instead...")
+        image_base_bdd = base_path_bdd / "images/10k/val"
+        label_base_bdd = base_path_bdd / "labels/sem_seg/masks/val"
+        image_base_r2s = base_path_r2s / "test"
+        label_base_r2s = base_path_r2s / "test_labels"
+    else:
+        return None
+    
+    # Check if the split exists
+    if not image_base_bdd.exists() or not label_base_bdd.exists():
+        print(f"Warning: BDD100k {split} split not found at {image_base_bdd} and {label_base_bdd}")
+        return None
+    if not image_base_r2s.exists() or not label_base_r2s.exists():
+        print(f"Warning: R2S100K {split} split not found at {image_base_r2s} and {label_base_r2s}")
+        return None
+
+    label_colors_list_bdd, class_names_bdd = config.parse_color_and_names(task='bdd100k')
+    label_colors_list_r2s, class_names_r2s = config.parse_color_and_names(task='r2s100k')
+    
+    return {
+        'image_base_bdd': str(image_base_bdd),
+        'image_base_r2s': str(image_base_r2s),
+        'label_base_bdd': str(label_base_bdd),
+        'label_base_r2s': str(label_base_r2s),
+        # 'image_transform': image_transform,
+        # 'mask_transform': mask_transform,
+        'transform': transform,
+        'class_names_bdd': class_names_bdd,
+        'class_names_r2s': class_names_r2s,
+        'label_colors_list_bdd': label_colors_list_bdd,
+        'label_colors_list_r2s': label_colors_list_r2s,
+        'split': split,
+        'seg_type': config.task_type,
+        'ignore_index': config.ignore_index,
+    }
+    
 def get_params_semseg_bdd100k_r2s100k(config, split):
     # Create transforms
     # image_transform, mask_transform = config.get_transforms()
@@ -201,6 +256,7 @@ get_params = {
     'semseg_bdd100k': get_params_semseg_bdd100k,
     'multitask_bdd100k': get_params_multitask_bdd100k,
     'semseg_bdd100k_r2s100k': get_params_semseg_bdd100k_r2s100k,
+    'semseg_bdd100k_r2s100k_two_view_aug': get_params_semseg_bdd100k_r2s100k_two_view_aug,
 }
 
 def get_dataset(config: DataConfig, split: str = "train") -> Optional[Dataset]:

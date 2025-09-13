@@ -73,13 +73,14 @@ class EMA:
         for name, p in model.named_parameters():
             if name not in self.shadow:
                 continue
-            ema_w = self.shadow[name]
-            if p.data.dtype != torch.float32:
-                tgt = ema_w.to(device=p.data.device, dtype=torch.float32)
-                p.data.copy_(tgt).to(dtype=p.data.dtype)
-            else:
-                p.data.copy_(ema_w.to(device=p.data.device, dtype=p.data.dtype))
-
+            # ema_w = self.shadow[name]
+            # if p.data.dtype != torch.float32:
+            #     tgt = ema_w.to(device=p.data.device, dtype=torch.float32)
+            #     p.data.copy_(tgt).to(dtype=p.data.dtype)
+            # else:
+            #     p.data.copy_(ema_w.to(device=p.data.device, dtype=p.data.dtype))
+            ema_w = self.shadow[name].to(device=p.data.device, dtype=p.data.dtype)
+            p.data.copy_(ema_w)
     @torch.no_grad()
     def store(self, model):
         """Save current (non-EMA) weights so we can restore later."""
