@@ -3177,32 +3177,38 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                             pseudo_labels = self.get_pseudo_labels(input_w=input_w[ids == 1], targets=targets['r2s100k'])
                             
                             pseudo_target = []
+                            valid = torch.zeros(pseudo_labels.shape[0]).bool()
                             for i in range(pseudo_labels.shape[0]):
                                 labels, masks = self.train_loader.dataset.semantic_to_instances(pseudo_labels[i].detach().cpu().numpy())
+                                if len(labels) == 0:
+                                    continue
                                 masks = torch.stack([torch.from_numpy(mask) for mask in masks])
                                 labels = torch.tensor(labels, dtype=torch.long)
                                 pseudo_target.append({
                                     "labels": labels,
                                     "masks": masks,
                                 })
-                            ### Temp workaround
-                            outputs_t = outputs_s_full
-                            outputs_temp = {'pred_logits': outputs_t['pred_logits'][ids == 1], 'pred_masks': outputs_t['pred_masks'][ids == 1] }
-                            outputs_temp['aux_outputs'] = []
-                            for aux_i in outputs_t['aux_outputs']:
-                                outputs_temp['aux_outputs'].append({"pred_logits": aux_i['pred_logits'][ids == 1], "pred_masks": aux_i['pred_masks'][ids == 1]})
-                            loss_pseudo = self.criterion['pseudo'](outputs_temp, pseudo_target)
-                            if isinstance(loss_pseudo, dict):
-                                for k in list(loss_pseudo.keys()):
-                                    if k in self.criterion['pseudo'].weight_dict:
-                                        loss_pseudo[k] *= self.criterion['pseudo'].weight_dict[k]
-                                    else:
-                                        # remove this loss if not specified in `weight_dict`
-                                        loss_pseudo.pop(k)
-                                loss_dict = loss_pseudo.copy()
-                                loss_pseudo = sum(loss_dict.values())
-                            
-                            losses = losses + self.config.pseudo_loss_weight * loss_pseudo
+                                valid[i] = True
+                                
+                            if valid.sum() > 0: ## Skip when no valid pseudo label masks within the batch
+                                ### Temp workaround
+                                outputs_t = outputs_s_full
+                                outputs_temp = {'pred_logits': outputs_t['pred_logits'][ids == 1][valid], 'pred_masks': outputs_t['pred_masks'][ids == 1][valid] }
+                                outputs_temp['aux_outputs'] = []
+                                for aux_i in outputs_t['aux_outputs']:
+                                    outputs_temp['aux_outputs'].append({"pred_logits": aux_i['pred_logits'][ids == 1][valid], "pred_masks": aux_i['pred_masks'][ids == 1][valid]})
+                                loss_pseudo = self.criterion['pseudo'](outputs_temp, pseudo_target)
+                                if isinstance(loss_pseudo, dict):
+                                    for k in list(loss_pseudo.keys()):
+                                        if k in self.criterion['pseudo'].weight_dict:
+                                            loss_pseudo[k] *= self.criterion['pseudo'].weight_dict[k]
+                                        else:
+                                            # remove this loss if not specified in `weight_dict`
+                                            loss_pseudo.pop(k)
+                                    loss_dict = loss_pseudo.copy()
+                                    loss_pseudo = sum(loss_dict.values())
+                                
+                                losses = losses + self.config.pseudo_loss_weight * loss_pseudo
                 # Scale loss to prevent gradient underflow
                 scaled_loss = self.scaler.scale(losses)
                 scaled_loss.backward()
