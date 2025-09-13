@@ -2971,7 +2971,10 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
         pseudo_labels = []
         
         for i in range(len(logits_w)):
-            pseudo_label = self.model.decoder.semantic_inference(logits_w[i], masks_w[i])
+            if is_distributed():
+                pseudo_label = self.model.module.decoder.semantic_inference(logits_w[i], masks_w[i])
+            else:
+                pseudo_label = self.model.decoder.semantic_inference(logits_w[i], masks_w[i])
             # pseudo_label = torch.argmax(pseudo_label, dim=1)
             scores, pseudo_label = torch.max(pseudo_label, dim=0)
             # Only keep pseudo-labels for enabled superset classes, set others to ignore_index
@@ -3303,7 +3306,10 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                                 mode="bilinear",
                                 align_corners=False,
                             )
-                            outputs_map = self.model.decoder.semantic_inference(logits_sup[0], masks_sup[0])
+                            if is_distributed():
+                                outputs_map = self.model.module.decoder.semantic_inference(logits_sup[0], masks_sup[0])
+                            else:
+                                outputs_map = self.model.decoder.semantic_inference(logits_sup[0], masks_sup[0])
                             # print(outputs_map.shape)
                             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
                             fig.suptitle("Unified Prediction", fontsize=16)
