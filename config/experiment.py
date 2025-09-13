@@ -268,9 +268,10 @@ class SemsegBDD100kR2S100kCrossTaskSupervision(Config):
     num_class_dict: Dict = None
     dataset_prediction_mapping: Dict = None
 
-    pseudo_label_confidence_score: float = 0.5 # Confidence threshold for pseudo-labeling
+    pseudo_label_confidence_score: float = 0.8 # Confidence threshold for pseudo-labeling
     pseudo_label_threshold: float = 0.7  # IoU threshold for pseudo-labeling
-    pseudo_loss_weight: float = 1.0
+    pseudo_label_miou_threshold: float = 0.3
+    pseudo_loss_weight: float = 0.5
     
     def __post_init__(self):
         self.model = ModelRegistry.get(self.model_name)()
@@ -284,7 +285,7 @@ class SemsegBDD100kR2S100kCrossTaskSupervision(Config):
         self.model.decoder.dataset_prediction_mapping = self.dataset_prediction_mapping
         
         self.model.decoder.num_classes = len(manual_labels_dict['sup_names'])
-        self.model.decoder.no_object_weight = {'bdd100k': 0.1, 'r2s100k': 0.01, 'pseudo': 0.0}
+        self.model.decoder.no_object_weight = {'bdd100k': 0.1, 'r2s100k': 0.01, 'pseudo': 0.01}
         self.data.num_classes = self.model.decoder.num_classes
         if self.model.decoder.name in ['mask2former_head', 'open_mask2former_head', 'multitask_mask2former_head']:
             print("Mask2Former is used, changing to instance segmentation data format")

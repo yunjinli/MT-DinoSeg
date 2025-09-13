@@ -2868,7 +2868,7 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
         super().__init__(*args, **kwargs)
         deep_supervision = self.config.model.decoder.deep_supervision
         no_object_weight = self.config.model.decoder.no_object_weight
-        print(no_object_weight)
+        # print(no_object_weight)
         # loss weights
         class_weight = self.config.model.decoder.class_weight
         dice_weight = self.config.model.decoder.dice_weight
@@ -2952,9 +2952,10 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                 sup_pseudo_enable_class_name_indices = torch.nonzero(torch.from_numpy(self.sup_pseudo_enable_class_mask).squeeze(-1), as_tuple=True)[0]
                 print("Enable superset class names are: ", [sup_names[i] for i in sup_pseudo_enable_class_name_indices])
             
+
     @torch.no_grad()
     def get_pseudo_labels(self, input_w, targets):
-        with self.ema_model.apply_to(self.model):
+        with self.ema_model.apply_to(self.model.module if is_distributed() else self.model):
             self.model.eval()
             outputs_w_full_ema, _ = self.model(input_w)
             
@@ -3085,6 +3086,82 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
         
         return pseudo_labels
     
+    def compute_loss(self, input_s, input_w, targets, ids):
+        outputs_s_full, outputs_s = self.model(input_s)    
+        if self.config.data.task_type == 'semantic_segmentation':
+            raise NotImplementedError
+        
+        elif self.config.data.task_type == 'instance_segmentation':
+            losses = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
+            # Dataset-sepcific loss with GT supervision
+            for t_id, t in enumerate(self.config.tasks):
+                
+                ### Temp workaround
+                outputs_t = outputs_s[t]
+                outputs_temp = {'pred_logits': outputs_t['pred_logits'][ids == t_id], 'pred_masks': outputs_t['pred_masks'][ids == t_id] }
+                outputs_temp['aux_outputs'] = []
+                for aux_i in outputs_t['aux_outputs']:
+                    outputs_temp['aux_outputs'].append({"pred_logits": aux_i['pred_logits'][ids == t_id], "pred_masks": aux_i['pred_masks'][ids == t_id]})
+                if len(targets[t]) == 0:
+                    # loss = 0.0
+                    loss = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
+                else:
+                    loss = self.criterion[t](outputs_temp, targets[t])
+
+                if isinstance(loss, dict):
+                    for k in list(loss.keys()):
+                        if k in self.criterion[t].weight_dict:
+                            loss[k] *= self.criterion[t].weight_dict[k]
+                        else:
+                            # remove this loss if not specified in `weight_dict`
+                            loss.pop(k)
+                    loss_dict = loss.copy()
+                    loss = sum(loss_dict.values())
+                losses = losses + loss
+        # print(f"Rank {get_rank()} computed supervised loss at batch {batch_idx}")
+        if self.sup_pseudo_enable_class_mask.sum() != 0:
+            # print("Compute Pseudo Label Loss...")
+            # Pseudo-label loss
+            if (ids == 1).sum() > 0:
+                pseudo_labels = self.get_pseudo_labels(input_w=input_w[ids == 1], targets=targets['r2s100k'])
+                
+                pseudo_target = []
+                valid = torch.zeros(pseudo_labels.shape[0]).bool()
+                for i in range(pseudo_labels.shape[0]):
+                    labels, masks = self.train_loader.dataset.semantic_to_instances(pseudo_labels[i].detach().cpu().numpy())
+                    if len(labels) == 0:
+                        continue
+                    masks = torch.stack([torch.from_numpy(mask) for mask in masks])
+                    labels = torch.tensor(labels, dtype=torch.long)
+                    pseudo_target.append({
+                        "labels": labels,
+                        "masks": masks,
+                    })
+                    valid[i] = True
+
+                if valid.sum() > 0: ## Skip when no valid pseudo label masks within the batch
+                    ### Temp workaround
+                    outputs_t = outputs_s_full
+                    outputs_temp = {'pred_logits': outputs_t['pred_logits'][ids == 1][valid], 'pred_masks': outputs_t['pred_masks'][ids == 1][valid] }
+                    outputs_temp['aux_outputs'] = []
+                    for aux_i in outputs_t['aux_outputs']:
+                        outputs_temp['aux_outputs'].append({"pred_logits": aux_i['pred_logits'][ids == 1][valid], "pred_masks": aux_i['pred_masks'][ids == 1][valid]})
+                    loss_pseudo = self.criterion['pseudo'](outputs_temp, pseudo_target)
+                    if isinstance(loss_pseudo, dict):
+                        for k in list(loss_pseudo.keys()):
+                            if k in self.criterion['pseudo'].weight_dict:
+                                loss_pseudo[k] *= self.criterion['pseudo'].weight_dict[k]
+                            else:
+                                # remove this loss if not specified in `weight_dict`
+                                loss_pseudo.pop(k)
+                        loss_dict = loss_pseudo.copy()
+                        loss_pseudo = sum(loss_dict.values())
+                else:
+                    loss_pseudo = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
+                    # print(f"Rank {get_rank()} skip unsupervised loss at batch {batch_idx}")
+                losses = losses + self.config.pseudo_loss_weight * loss_pseudo
+        return losses
+
     def train_epoch(self, epoch: int) -> Dict[str, float]:
         """
         Train for one epoch.
@@ -3137,78 +3214,7 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
             if self.use_amp and self.scaler is not None:
                 # Mixed precision training
                 with autocast():
-                    # _, outputs = self.model(input_w)
-                    outputs_s_full, outputs_s = self.model(input_s)
-                    
-                    if self.config.data.task_type == 'semantic_segmentation':
-                        raise NotImplementedError
-                    
-                    elif self.config.data.task_type == 'instance_segmentation':
-                        losses = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
-                        # Dataset-sepcific loss with GT supervision
-                        for t_id, t in enumerate(self.config.tasks):
-                            
-                            ### Temp workaround
-                            outputs_t = outputs_s[t]
-                            outputs_temp = {'pred_logits': outputs_t['pred_logits'][ids == t_id], 'pred_masks': outputs_t['pred_masks'][ids == t_id] }
-                            outputs_temp['aux_outputs'] = []
-                            for aux_i in outputs_t['aux_outputs']:
-                                outputs_temp['aux_outputs'].append({"pred_logits": aux_i['pred_logits'][ids == t_id], "pred_masks": aux_i['pred_masks'][ids == t_id]})
-                            if len(targets[t]) == 0:
-                                # loss = 0.0
-                                loss = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
-                            else:
-                                loss = self.criterion[t](outputs_temp, targets[t])
-
-                            if isinstance(loss, dict):
-                                for k in list(loss.keys()):
-                                    if k in self.criterion[t].weight_dict:
-                                        loss[k] *= self.criterion[t].weight_dict[k]
-                                    else:
-                                        # remove this loss if not specified in `weight_dict`
-                                        loss.pop(k)
-                                loss_dict = loss.copy()
-                                loss = sum(loss_dict.values())
-                            losses = losses + loss
-                    if self.sup_pseudo_enable_class_mask.sum() != 0:
-                        # print("Compute Pseudo Label Loss...")
-                        # Pseudo-label loss
-                        if (ids == 1).sum() > 0:
-                            pseudo_labels = self.get_pseudo_labels(input_w=input_w[ids == 1], targets=targets['r2s100k'])
-                            
-                            pseudo_target = []
-                            valid = torch.zeros(pseudo_labels.shape[0]).bool()
-                            for i in range(pseudo_labels.shape[0]):
-                                labels, masks = self.train_loader.dataset.semantic_to_instances(pseudo_labels[i].detach().cpu().numpy())
-                                if len(labels) == 0:
-                                    continue
-                                masks = torch.stack([torch.from_numpy(mask) for mask in masks])
-                                labels = torch.tensor(labels, dtype=torch.long)
-                                pseudo_target.append({
-                                    "labels": labels,
-                                    "masks": masks,
-                                })
-                                valid[i] = True
-                                
-                            if valid.sum() > 0: ## Skip when no valid pseudo label masks within the batch
-                                ### Temp workaround
-                                outputs_t = outputs_s_full
-                                outputs_temp = {'pred_logits': outputs_t['pred_logits'][ids == 1][valid], 'pred_masks': outputs_t['pred_masks'][ids == 1][valid] }
-                                outputs_temp['aux_outputs'] = []
-                                for aux_i in outputs_t['aux_outputs']:
-                                    outputs_temp['aux_outputs'].append({"pred_logits": aux_i['pred_logits'][ids == 1][valid], "pred_masks": aux_i['pred_masks'][ids == 1][valid]})
-                                loss_pseudo = self.criterion['pseudo'](outputs_temp, pseudo_target)
-                                if isinstance(loss_pseudo, dict):
-                                    for k in list(loss_pseudo.keys()):
-                                        if k in self.criterion['pseudo'].weight_dict:
-                                            loss_pseudo[k] *= self.criterion['pseudo'].weight_dict[k]
-                                        else:
-                                            # remove this loss if not specified in `weight_dict`
-                                            loss_pseudo.pop(k)
-                                    loss_dict = loss_pseudo.copy()
-                                    loss_pseudo = sum(loss_dict.values())
-                                
-                                losses = losses + self.config.pseudo_loss_weight * loss_pseudo
+                    losses = self.compute_loss(input_s=input_s, input_w=input_w, targets=targets, ids=ids)
                 # Scale loss to prevent gradient underflow
                 scaled_loss = self.scaler.scale(losses)
                 scaled_loss.backward()
@@ -3221,68 +3227,12 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                         self.model.parameters(), 
                         self.config.training.grad_clip_val
                     )
-                
                 # Update weights
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
                 # Standard precision training
-                _, outputs = self.model(input_w)
-                _, outputs_s = self.model(input_s)
-                if self.config.data.task_type == 'semantic_segmentation':
-                    # outputs = torch.nn.functional.interpolate(outputs, size=targets.shape[1:], mode="bilinear", align_corners=False)
-                    # loss = self.criterion(outputs, targets)
-                    raise NotImplementedError
-                elif self.config.data.task_type == 'instance_segmentation':
-                    # losses = 0.0
-                    losses = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
-                    for t_id, t in enumerate(self.config.tasks):
-                        ### Temp workaround
-                        outputs_t = outputs_s[t]
-                        outputs_temp = {'pred_logits': outputs_t['pred_logits'][ids == t_id], 'pred_masks': outputs_t['pred_masks'][ids == t_id] }
-                        outputs_temp['aux_outputs'] = []
-                        for aux_i in outputs_t['aux_outputs']:
-                            outputs_temp['aux_outputs'].append({"pred_logits": aux_i['pred_logits'][ids == t_id], "pred_masks": aux_i['pred_masks'][ids == t_id]})
-                        if len(targets[t]) == 0:
-                            # loss = 0.0
-                            loss = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
-                        else:
-                            loss = self.criterion[t](outputs_temp, targets[t])
-
-                        if isinstance(loss, dict):
-                            for k in list(loss.keys()):
-                                if k in self.criterion[t].weight_dict:
-                                    loss[k] *= self.criterion[t].weight_dict[k]
-                                else:
-                                    # remove this loss if not specified in `weight_dict`
-                                    loss.pop(k)
-                            loss_dict = loss.copy()
-                            loss = sum(loss_dict.values())
-                        losses = losses + loss
-                if self.sup_pseudo_enable_class_mask.sum() != 0:
-                    print("Compute Pseudo Label Loss...")
-                    # Pseudo-label loss
-                    pseudo_labels = self.get_pseudo_labels(input_w=input_w[ids == 1], targets=targets['r2s100k'])
-                    
-                    pseudo_target = []
-                    for i in range(pseudo_labels.shape[0]):
-                        labels, masks = self.train_loader.dataset.semantic_to_instances(pseudo_labels[i].detach().cpu().numpy())
-                        pseudo_target.append({
-                            "labels": labels,
-                            "masks": masks,
-                        })
-                    loss_pseudo = self.criterion['pseudo'](outputs_s[ids == 1], pseudo_target)
-                    if isinstance(loss_pseudo, dict):
-                        for k in list(loss_pseudo.keys()):
-                            if k in self.criterion['pseudo'].weight_dict:
-                                loss_pseudo[k] *= self.criterion['pseudo'].weight_dict[k]
-                            else:
-                                # remove this loss if not specified in `weight_dict`
-                                loss_pseudo.pop(k)
-                        loss_dict = loss_pseudo.copy()
-                        loss_pseudo = sum(loss_dict.values())
-                    
-                    losses = losses + self.pseudo_loss_weight * loss_pseudo
+                losses = self.compute_loss(input_s=input_s, input_w=input_w, targets=targets, ids=ids)
                 losses.backward()
                 
                 # Gradient clipping if configured
@@ -3300,7 +3250,7 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
             # For testing the output of EMA
             if is_main_process():
                 if True:
-                    with self.ema_model.apply_to(self.model):
+                    with self.ema_model.apply_to(self.model.module if is_distributed() else self.model):
                         self.model.eval()
                         with torch.no_grad():
                             outputs_superset_ema, _ = self.model(input_w)
@@ -3960,7 +3910,10 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                         encoded_arr = np.zeros((self.config.num_class_dict['bdd100k']), dtype=int)
                         encoded_arr[arr] = 1
                         self.sup_pseudo_enable_class_mask = self.config.dataset_prediction_mapping['bdd100k'].T @ encoded_arr.reshape((self.config.num_class_dict['bdd100k'], 1))
-                        
+                    
+                        if global_metrics['mean_iou'] < self.config.pseudo_label_miou_threshold:
+                            self.sup_pseudo_enable_class_mask = torch.zeros((self.config.data.num_classes, 1))
+
                 output_metrics = {'val_loss': global_loss}
 
                 for t in self.config.tasks:
@@ -3968,6 +3921,9 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                     output_metrics[f'mean_accuracy_{t}'] = global_metrics_task[t]['mean_accuracy']
                     output_metrics[f'mean_iou_{t}'] = global_metrics_task[t]['mean_iou']
                     output_metrics[f'fw_iou_{t}'] = global_metrics_task[t]['fw_iou']
+
+                
+
                 # Return global metrics for checkpoint saving
                 return output_metrics
             else:
@@ -4023,7 +3979,10 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                         encoded_arr = np.zeros((self.config.num_class_dict['bdd100k']), dtype=int)
                         encoded_arr[arr] = 1
                         self.sup_pseudo_enable_class_mask = self.config.dataset_prediction_mapping['bdd100k'].T @ encoded_arr.reshape((self.config.num_class_dict['bdd100k'], 1))
-                        print(self.sup_pseudo_enable_class_mask)
+                        # print(self.sup_pseudo_enable_class_mask)
+                        if metrics['mean_iou'] < self.config.pseudo_label_miou_threshold:
+                            self.sup_pseudo_enable_class_mask = torch.zeros((self.config.data.num_classes, 1))
+                            
                 output_metrics[f'pixel_accuracy_{t}'] = metrics['pixel_accuracy']
                 output_metrics[f'mean_accuracy_{t}'] = metrics['mean_accuracy']
                 output_metrics[f'mean_iou_{t}'] = metrics['mean_iou']
