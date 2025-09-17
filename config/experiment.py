@@ -163,6 +163,7 @@ class SemsegLaneDrivableBDD100k(Config):
 class SemsegBDD100kR2S100k(Config):
     experiment_name: str = "semseg_bdd100k_r2s100k"
     multidataset: bool = True
+    cross_task_supervision: bool = False
     model_name: str = "custom_model"
     model: ModelConfig = field(init=False)
     # model: ModelConfig = None
@@ -194,6 +195,8 @@ class SemsegBDD100kR2S100k(Config):
     num_class_dict: Dict = None
     dataset_prediction_mapping: Dict = None
     
+    enable_ema: bool = True
+    ema_decay: float = 0.999 
     def __post_init__(self):
         self.model = ModelRegistry.get(self.model_name)()
         self.data.tasks = self.tasks
@@ -215,7 +218,7 @@ class SemsegBDD100kR2S100k(Config):
         
         # colormap_superset, classnames_superset = self.data.get_manual_superset_color_and_names()
         self.model.decoder.num_classes = len(manual_labels_dict['sup_names'])
-        self.model.decoder.no_object_weight = {'bdd100k': 0.1, 'r2s100k': 0.01}
+        self.model.decoder.no_object_weight = {'bdd100k': 0.1, 'r2s100k': 0.0}
         # self.model.decoder.num_obj_queries_dict = self.num_obj_queries_dict
         # self.data.num_classes = len(self.data.class_names)
         self.data.num_classes = self.model.decoder.num_classes

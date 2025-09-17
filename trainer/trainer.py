@@ -1789,10 +1789,12 @@ class MultiDatasetTrainer(Trainer):
             self.ema_model = EMA(model=self.model, decay=self.config.ema_decay, device=self.device, )
             if is_main_process():
                 print("Using EMA weights for pseudo-labeling")
+            if self.resume_checkpoint:
+                checkpoint = torch.load(self.resume_checkpoint, map_location=self.device)
+                self.ema_model.load_state_dict(checkpoint['ema_state_dict'])
         else:
             self.ema_model = None
             
-
     def train_epoch(self, epoch: int) -> Dict[str, float]:
         """
         Train for one epoch.
@@ -1951,122 +1953,126 @@ class MultiDatasetTrainer(Trainer):
             self.ema_model.update(self.model.module if is_distributed() else self.model)
             
             # For testing the output of EMA
-            if False:
-                with self.ema_model.apply_to(self.model):
-                    self.model.eval()
-                    with torch.no_grad():
-                        outputs_superset_ema, _ = self.model(inputs)
-                        logits_sup = outputs_superset_ema["pred_logits"]
-                        masks_sup = outputs_superset_ema["pred_masks"]
-                        masks_sup = F.interpolate(
-                            masks_sup,
-                            size=inputs.shape[2:],  # (H, W)
-                            mode="bilinear",
-                            align_corners=False,
-                        )
-                        outputs_map = self.model.decoder.semantic_inference(logits_sup[0], masks_sup[0])
-                        # print(outputs_map.shape)
-                        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-                        fig.suptitle("Unified Prediction", fontsize=16)
-                        mean = torch.tensor(self.config.data.mean).view(3, 1, 1).to(inputs.device)
-                        std = torch.tensor(self.config.data.std).view(3, 1, 1).to(inputs.device)
-                        image_denorm = inputs[0] * std + mean
-                        image_np = image_denorm.cpu().numpy().transpose(1, 2, 0)
-                        image_np = np.clip(image_np, 0, 1)
-                        image_pil = Image.fromarray((image_np * 255).astype(np.uint8))
-                        # image_resized = image_pil.resize(img.size, Image.BILINEAR)
-                        image_np = np.array(image_pil).astype(np.float32) / 255.0
-                        if outputs_map.dim() == 3:  # [C, H, W]
-                            predicted_mask = torch.argmax(outputs_map, dim=0).cpu().numpy()
-                        else:  # [H, W]
-                            predicted_mask = outputs_map.cpu().numpy()
-                        ax1.imshow(image_np)
-                        # print(self.config.tasks[ids[0].item()])
-                        ax1.set_title("Original Image")
-                        ax1.axis('off')
+            if is_main_process():
+                if True:
+                    with self.ema_model.apply_to(self.model.module if is_distributed() else self.model):
+                        self.model.eval()
+                        with torch.no_grad():
+                            outputs_superset_ema, _ = self.model(inputs)
+                            logits_sup = outputs_superset_ema["pred_logits"]
+                            masks_sup = outputs_superset_ema["pred_masks"]
+                            masks_sup = F.interpolate(
+                                masks_sup,
+                                size=inputs.shape[2:],  # (H, W)
+                                mode="bilinear",
+                                align_corners=False,
+                            )
+                            if is_distributed():
+                                outputs_map = self.model.module.decoder.semantic_inference(logits_sup[0], masks_sup[0])
+                            else:
+                                outputs_map = self.model.decoder.semantic_inference(logits_sup[0], masks_sup[0])
+                            # print(outputs_map.shape)
+                            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+                            fig.suptitle("Unified Prediction", fontsize=16)
+                            mean = torch.tensor(self.config.data.mean).view(3, 1, 1).to(inputs.device)
+                            std = torch.tensor(self.config.data.std).view(3, 1, 1).to(inputs.device)
+                            image_denorm = inputs[0] * std + mean
+                            image_np = image_denorm.cpu().numpy().transpose(1, 2, 0)
+                            image_np = np.clip(image_np, 0, 1)
+                            image_pil = Image.fromarray((image_np * 255).astype(np.uint8))
+                            # image_resized = image_pil.resize(img.size, Image.BILINEAR)
+                            image_np = np.array(image_pil).astype(np.float32) / 255.0
+                            if outputs_map.dim() == 3:  # [C, H, W]
+                                predicted_mask = torch.argmax(outputs_map, dim=0).cpu().numpy()
+                            else:  # [H, W]
+                                predicted_mask = outputs_map.cpu().numpy()
+                            ax1.imshow(image_np)
+                            # print(self.config.tasks[ids[0].item()])
+                            ax1.set_title("Original Image")
+                            ax1.axis('off')
 
-                        unified_label_colors = self.config.data.get_manual_superset_color_and_names()['sup_colors']
-                        unified_class_names = self.config.data.get_manual_superset_color_and_names()['sup_names']
-                        # Find duplicates
-                        color_to_indices = {}
-                        for idx, color in enumerate(unified_label_colors):
-                            color_to_indices.setdefault(color, []).append(idx)
+                            unified_label_colors = self.config.data.get_manual_superset_color_and_names()['sup_colors']
+                            unified_class_names = self.config.data.get_manual_superset_color_and_names()['sup_names']
+                            # Find duplicates
+                            color_to_indices = {}
+                            for idx, color in enumerate(unified_label_colors):
+                                color_to_indices.setdefault(color, []).append(idx)
 
-                        class_colors = torch.tensor(unified_label_colors, dtype=torch.float32) / 255.0
+                            class_colors = torch.tensor(unified_label_colors, dtype=torch.float32) / 255.0
 
-                        if outputs_map.dim() == 3:  # [C, H, W]
-                            predicted_mask = torch.argmax(outputs_map, dim=0).cpu().numpy()
-                        else:  # [H, W]
-                            predicted_mask = outputs_map.cpu().numpy()
+                            if outputs_map.dim() == 3:  # [C, H, W]
+                                predicted_mask = torch.argmax(outputs_map, dim=0).cpu().numpy()
+                            else:  # [H, W]
+                                predicted_mask = outputs_map.cpu().numpy()
 
-                        pred_colored = np.zeros((predicted_mask.shape[0], predicted_mask.shape[1], 3))
-                        for class_idx in range(len(class_colors)):
-                            class_mask = predicted_mask == class_idx
-                            pred_colored[class_mask] = class_colors[class_idx].cpu().numpy()
+                            pred_colored = np.zeros((predicted_mask.shape[0], predicted_mask.shape[1], 3))
+                            for class_idx in range(len(class_colors)):
+                                class_mask = predicted_mask == class_idx
+                                pred_colored[class_mask] = class_colors[class_idx].cpu().numpy()
 
-                        ax2.imshow(image_np)
-                        ax2.imshow(pred_colored, alpha=0.5)
-                        ax2.set_title("Prediction Overlay")
-                        ax2.axis('off')
+                            ax2.imshow(image_np)
+                            ax2.imshow(pred_colored, alpha=0.5)
+                            ax2.set_title("Prediction Overlay")
+                            ax2.axis('off')
 
-                        ax3.imshow(pred_colored)
-                        ax3.set_title("Predicted Mask")
-                        ax3.axis('off')
+                            ax3.imshow(pred_colored)
+                            ax3.set_title("Predicted Mask")
+                            ax3.axis('off')
 
-                        # Legend as a fourth subplot in the bottom row
+                            # Legend as a fourth subplot in the bottom row
 
-                        # Change layout to 2 rows: 1st row for images, 2nd row for legend (spanning all columns)
-                        fig.clf()  # Clear the current figure to redefine the layout
-                        gs = fig.add_gridspec(2, 3, height_ratios=[10, 1])
+                            # Change layout to 2 rows: 1st row for images, 2nd row for legend (spanning all columns)
+                            fig.clf()  # Clear the current figure to redefine the layout
+                            gs = fig.add_gridspec(2, 3, height_ratios=[10, 1])
 
-                        # Redraw the three images in the first row
-                        ax1 = fig.add_subplot(gs[0, 0])
-                        ax1.imshow(image_np)
-                        ax1.set_title("Original Image {name}".format(name=self.config.tasks[ids[0].item()]))
-                        ax1.axis('off')
+                            # Redraw the three images in the first row
+                            ax1 = fig.add_subplot(gs[0, 0])
+                            ax1.imshow(image_np)
+                            ax1.set_title("Original Image {name}".format(name=self.config.tasks[ids[0].item()]))
+                            ax1.axis('off')
 
-                        ax2 = fig.add_subplot(gs[0, 1])
-                        ax2.imshow(image_np)
-                        ax2.imshow(pred_colored, alpha=0.5)
-                        ax2.set_title("Prediction Overlay {name}".format(name=self.config.tasks[ids[0].item()]))
-                        ax2.axis('off')
+                            ax2 = fig.add_subplot(gs[0, 1])
+                            ax2.imshow(image_np)
+                            ax2.imshow(pred_colored, alpha=0.5)
+                            ax2.set_title("Prediction Overlay {name}".format(name=self.config.tasks[ids[0].item()]))
+                            ax2.axis('off')
 
-                        ax3 = fig.add_subplot(gs[0, 2])
-                        ax3.imshow(pred_colored)
-                        ax3.set_title("Predicted Mask {name}".format(name=self.config.tasks[ids[0].item()]))
-                        ax3.axis('off')
+                            ax3 = fig.add_subplot(gs[0, 2])
+                            ax3.imshow(pred_colored)
+                            ax3.set_title("Predicted Mask {name}".format(name=self.config.tasks[ids[0].item()]))
+                            ax3.axis('off')
 
-                        # Legend in the bottom row, spanning all columns
-                        # Move the legend down by increasing the bottom margin and adjusting subplot spacing
-                        ax4 = fig.add_subplot(gs[1, :])
-                        for idx, (name, color) in enumerate(zip(unified_class_names, unified_label_colors)):
-                            ax4.bar(idx, 1, color=np.array(color)/255, edgecolor='k', width=1)
-                        ax4.set_xticks(range(len(unified_class_names)))
-                        ax4.set_xticklabels(unified_class_names, rotation=90, ha='center', fontsize=10)
-                        ax4.set_yticks([])
-                        ax4.set_title('Legend', fontsize=12)
-                        ax4.set_xlim(-0.5, len(unified_class_names)-0.5)
-                        ax4.tick_params(axis='x', length=0)
-                        # plt.tight_layout(rect=[0, 0.08, 1, 1])  # Increase bottom margin (0.08)
-                        plt.tight_layout()
-                        plt.subplots_adjust(hspace=0.2)         # Increase vertical space between rows
-                        # plt.show()
-                        # Render figure to RGB array
-                        canvas = FigureCanvas(fig)
-                        canvas.draw()
-                        w, h = fig.canvas.get_width_height()
-                        buf = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8).reshape(h, w, 3)
+                            # Legend in the bottom row, spanning all columns
+                            # Move the legend down by increasing the bottom margin and adjusting subplot spacing
+                            ax4 = fig.add_subplot(gs[1, :])
+                            for idx, (name, color) in enumerate(zip(unified_class_names, unified_label_colors)):
+                                ax4.bar(idx, 1, color=np.array(color)/255, edgecolor='k', width=1)
+                            ax4.set_xticks(range(len(unified_class_names)))
+                            ax4.set_xticklabels(unified_class_names, rotation=90, ha='center', fontsize=10)
+                            ax4.set_yticks([])
+                            ax4.set_title('Legend', fontsize=12)
+                            ax4.set_xlim(-0.5, len(unified_class_names)-0.5)
+                            ax4.tick_params(axis='x', length=0)
+                            # plt.tight_layout(rect=[0, 0.08, 1, 1])  # Increase bottom margin (0.08)
+                            plt.tight_layout()
+                            plt.subplots_adjust(hspace=0.2)         # Increase vertical space between rows
+                            # plt.show()
+                            # Render figure to RGB array
+                            canvas = FigureCanvas(fig)
+                            canvas.draw()
+                            w, h = fig.canvas.get_width_height()
+                            buf = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8).reshape(h, w, 3)
 
-                        plt.close(fig)
-                        # Show in OpenCV (convert RGB→BGR)
-                        cv2.imshow("EMA Prediction on Supersets", cv2.cvtColor(buf, cv2.COLOR_RGB2BGR))
-                        k = cv2.waitKey(1) & 0xFF        # non-blocking
-                        if k in (27, ord('q')):          # ESC or q to quit
-                            break
-                        # cv2.destroyAllWindows()
-                        
-                        
-                self.model.train()
+                            plt.close(fig)
+                            # Show in OpenCV (convert RGB→BGR)
+                            cv2.imshow("EMA Prediction on Supersets", cv2.cvtColor(buf, cv2.COLOR_RGB2BGR))
+                            k = cv2.waitKey(1) & 0xFF        # non-blocking
+                            if k in (27, ord('q')):          # ESC or q to quit
+                                break
+                            # cv2.destroyAllWindows()
+                            
+                            
+                    self.model.train()
             
             loss = losses
             # Update metrics
@@ -2862,7 +2868,83 @@ class MultiDatasetTrainer(Trainer):
                 torch.from_numpy(target_colored.transpose(2, 0, 1)), 
                 epoch
             )
+
+    def save_checkpoint(self, epoch: int, is_best: bool = False, metrics: Optional[Dict[str, float]] = None) -> None:
+        """
+        Save a checkpoint of the model (only on main process).
+        
+        Args:
+            epoch: Current epoch number
+            is_best: Whether this is the best model so far
+            metrics: Dictionary of validation metrics to save
+        """
+        if not is_main_process():
+            return
             
+        # Create checkpoint directory
+        checkpoint_dir = self.output_dir / "checkpoints"
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        
+        # Get model state dict (handle DDP or DP)
+        if hasattr(self.model, 'module'):
+            model_state = self.model.module.state_dict()
+        else:
+            model_state = self.model.state_dict()
+        
+        # Create checkpoint with comprehensive information
+        checkpoint = {
+            'epoch': epoch + 1,
+            'model_state_dict': model_state,
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'best_val_loss': self.best_val_loss,
+            'best_miou': self.best_miou,
+            'best_epoch': self.best_epoch,
+            'best_metrics': self.best_metrics,
+            'config': self.config,
+            'metrics_history': self.metrics_history,
+            'use_amp': self.use_amp,
+        }
+        
+        # Add scheduler state if available
+        if self.scheduler:
+            checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
+
+        if self.use_amp and self.scaler is not None:
+            checkpoint['scaler_state_dict'] = self.scaler.state_dict()
+
+        # Add current metrics if provided
+        if metrics:
+            checkpoint['current_metrics'] = metrics
+
+        if self.ema_model:
+            checkpoint['ema_state_dict'] = self.ema_model.state_dict()
+            
+        # if self.sup_pseudo_enable_class_mask:
+        # checkpoint['sup_pseudo_enable_class_mask'] = self.sup_pseudo_enable_class_mask
+        # print(checkpoint['sup_pseudo_enable_class_mask'])   
+        # Format checkpoint path
+        if False: ## Set to True to save all checkpoints for all epoches
+            checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch + 1}.pth"
+            torch.save(checkpoint, checkpoint_path)
+        # If this is the best model, create a copy
+        if is_best:
+            best_path = checkpoint_dir / "best_model.pth"
+            torch.save(checkpoint, best_path)
+            print(f"Saved best model checkpoint to {best_path}")
+            
+            # Also save a text file with the best metrics for quick reference
+            if metrics:
+                best_metrics_path = self.output_dir / "best_metrics.txt"
+                with open(best_metrics_path, 'w') as f:
+                    f.write(f"Best model (epoch {epoch + 1}):\n")
+                    for k, v in metrics.items():
+                        f.write(f"{k}: {v}\n")
+                    f.write(f"use_amp: {self.use_amp}\n")
+        
+        # Save latest checkpoint (for easy resuming)
+        latest_path = checkpoint_dir / "latest.pth"
+        torch.save(checkpoint, latest_path)   
+
 class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -2934,9 +3016,9 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
             self.ema_model = EMA(model=self.model, decay=self.config.ema_decay, device=self.device, )
             if is_main_process():
                 print("Using EMA weights for pseudo-labeling")
-                if self.resume_checkpoint:
-                    checkpoint = torch.load(self.resume_checkpoint, map_location=self.device)
-                    self.ema_model.load_state_dict(checkpoint['ema_state_dict'])
+            if self.resume_checkpoint:
+                checkpoint = torch.load(self.resume_checkpoint, map_location=self.device)
+                self.ema_model.load_state_dict(checkpoint['ema_state_dict'])
         else:
             self.ema_model = None
         
@@ -3157,9 +3239,20 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                         loss_dict = loss_pseudo.copy()
                         loss_pseudo = sum(loss_dict.values())
                 else:
+                    dummy = torch.zeros(1, device=self.device)
+                    torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
                     loss_pseudo = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
                     # print(f"Rank {get_rank()} skip unsupervised loss at batch {batch_idx}")
-                losses = losses + self.config.pseudo_loss_weight * loss_pseudo
+            else:
+                dummy = torch.zeros(1, device=self.device)
+                torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
+                loss_pseudo = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
+        else:
+            dummy = torch.zeros(1, device=self.device)
+            torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
+            loss_pseudo = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
+                     
+        losses = losses + self.config.pseudo_loss_weight * loss_pseudo
         return losses
 
     def train_epoch(self, epoch: int) -> Dict[str, float]:
