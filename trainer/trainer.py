@@ -3033,8 +3033,53 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                 # print(self.sup_pseudo_enable_class_mask)
                 sup_pseudo_enable_class_name_indices = torch.nonzero(torch.from_numpy(self.sup_pseudo_enable_class_mask).squeeze(-1), as_tuple=True)[0]
                 print("Enable superset class names are: ", [sup_names[i] for i in sup_pseudo_enable_class_name_indices])
+        
+        self.kl_loss = nn.KLDivLoss(reduction="none")
+        
+    @torch.no_grad()
+    def get_pseudo_probs(self, input_w, targets):
+        with self.ema_model.apply_to(self.model.module if is_distributed() else self.model):
+            self.model.eval()
+            _, outputs_w = self.model(input_w)
             
+        self.model.train()
+        logits_w = outputs_w['bdd100k']["pred_logits"]
+        masks_w = outputs_w['bdd100k']["pred_masks"]
+        
+        masks_w = F.interpolate(
+            masks_w,
+            size=input_w.shape[2:],  # (H, W)
+            mode="bilinear",
+            align_corners=False,
+        )
+        
+        mask_probs = F.softmax(logits_w, dim=-1)[..., :-1]
+        mask_pred = masks_w.sigmoid()
+        probs_pseudo = torch.einsum('bqc,bqhw->bchw', mask_probs, mask_pred)
+        
+        scores, pseudo_labels = torch.max(probs_pseudo, dim=1)
+        
+        valid_mask = torch.ones_like(scores)
+        
+        # pseudo_labels = []
+        bdd_pseudo_enable_class_mask = self.config.dataset_prediction_mapping['bdd100k'] @ self.sup_pseudo_enable_class_mask
+        for i in range(len(logits_w)):
+            # Only keep pseudo-labels for enabled superset classes, set others to ignore_index
+            # pseudo_label_masked = pseudo_label.clone()
+            for c in range(bdd_pseudo_enable_class_mask.shape[0]):
+                if bdd_pseudo_enable_class_mask[c, 0] == 0:
+                    valid_mask[pseudo_labels == c] = 0
+            valid_mask[scores < self.config.pseudo_label_confidence_score] = 0
+            has_gt_target = targets[i]['masks'].sum(dim=0) != 0
+            # print(has_gt_target.shape)
+            # print(pseudo_label_masked.shape)
+            valid_mask[i][has_gt_target] = 0
+            # pseudo_labels.append(pseudo_label_masked)
 
+        valid_mask = valid_mask.unsqueeze(1).expand(probs_pseudo.shape)
+        # pseudo_labels = torch.stack(pseudo_labels)
+        return probs_pseudo, valid_mask.bool()
+        
     @torch.no_grad()
     def get_pseudo_labels(self, input_w, targets):
         with self.ema_model.apply_to(self.model.module if is_distributed() else self.model):
@@ -3205,51 +3250,83 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
             # print("Compute Pseudo Label Loss...")
             # Pseudo-label loss
             if (ids == 1).sum() > 0:
-                pseudo_labels = self.get_pseudo_labels(input_w=input_w[ids == 1], targets=targets['r2s100k'])
-                
-                pseudo_target = []
-                valid = torch.zeros(pseudo_labels.shape[0]).bool()
-                for i in range(pseudo_labels.shape[0]):
-                    labels, masks = self.train_loader.dataset.semantic_to_instances(pseudo_labels[i].detach().cpu().numpy())
-                    if len(labels) == 0:
-                        continue
-                    masks = torch.stack([torch.from_numpy(mask) for mask in masks])
-                    labels = torch.tensor(labels, dtype=torch.long)
-                    pseudo_target.append({
-                        "labels": labels,
-                        "masks": masks,
-                    })
-                    valid[i] = True
+                # With binary mask
+                # pseudo_labels = self.get_pseudo_labels(input_w=input_w[ids == 1], targets=targets['r2s100k'])
+                # pseudo_target = []
+                # valid = torch.zeros(pseudo_labels.shape[0]).bool()
+                # for i in range(pseudo_labels.shape[0]):
+                #     labels, masks = self.train_loader.dataset.semantic_to_instances(pseudo_labels[i].detach().cpu().numpy())
+                #     if len(labels) == 0:
+                #         continue
+                #     masks = torch.stack([torch.from_numpy(mask) for mask in masks])
+                #     labels = torch.tensor(labels, dtype=torch.long)
+                #     pseudo_target.append({
+                #         "labels": labels,
+                #         "masks": masks,
+                #     })
+                #     valid[i] = True
 
-                if valid.sum() > 0: ## Skip when no valid pseudo label masks within the batch
-                    ### Temp workaround
-                    outputs_t = outputs_s_full
-                    outputs_temp = {'pred_logits': outputs_t['pred_logits'][ids == 1][valid], 'pred_masks': outputs_t['pred_masks'][ids == 1][valid] }
-                    outputs_temp['aux_outputs'] = []
-                    for aux_i in outputs_t['aux_outputs']:
-                        outputs_temp['aux_outputs'].append({"pred_logits": aux_i['pred_logits'][ids == 1][valid], "pred_masks": aux_i['pred_masks'][ids == 1][valid]})
-                    loss_pseudo = self.criterion['pseudo'](outputs_temp, pseudo_target)
-                    if isinstance(loss_pseudo, dict):
-                        for k in list(loss_pseudo.keys()):
-                            if k in self.criterion['pseudo'].weight_dict:
-                                loss_pseudo[k] *= self.criterion['pseudo'].weight_dict[k]
-                            else:
-                                # remove this loss if not specified in `weight_dict`
-                                loss_pseudo.pop(k)
-                        loss_dict = loss_pseudo.copy()
-                        loss_pseudo = sum(loss_dict.values())
+                # if valid.sum() > 0: ## Skip when no valid pseudo label masks within the batch
+                #     ### Temp workaround
+                #     outputs_t = outputs_s_full
+                #     outputs_temp = {'pred_logits': outputs_t['pred_logits'][ids == 1][valid], 'pred_masks': outputs_t['pred_masks'][ids == 1][valid] }
+                #     outputs_temp['aux_outputs'] = []
+                #     for aux_i in outputs_t['aux_outputs']:
+                #         outputs_temp['aux_outputs'].append({"pred_logits": aux_i['pred_logits'][ids == 1][valid], "pred_masks": aux_i['pred_masks'][ids == 1][valid]})
+                #     loss_pseudo = self.criterion['pseudo'](outputs_temp, pseudo_target)
+                #     if isinstance(loss_pseudo, dict):
+                #         for k in list(loss_pseudo.keys()):
+                #             if k in self.criterion['pseudo'].weight_dict:
+                #                 loss_pseudo[k] *= self.criterion['pseudo'].weight_dict[k]
+                #             else:
+                #                 # remove this loss if not specified in `weight_dict`
+                #                 loss_pseudo.pop(k)
+                #         loss_dict = loss_pseudo.copy()
+                #         loss_pseudo = sum(loss_dict.values())
+                # else:
+                #     dummy = torch.zeros(1, device=self.device)
+                #     if is_distributed():
+                #         torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
+                #     loss_pseudo = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
+                
+                # With distribution
+                probs_pseudo, valid_mask  = self.get_pseudo_probs(input_w=input_w[ids == 1], targets=targets['r2s100k'])
+                if valid_mask.sum() > 0:
+                    probs_pseudo = (probs_pseudo / probs_pseudo.sum(1, keepdim=True).clamp_min(1e-8)).detach() ## Normalize
+                    # print(probs_pseudo.shape, valid_mask.shape)
+                    outputs_s_bdd = outputs_s['bdd100k']
+                    logits_s_bdd = outputs_s_bdd["pred_logits"][ids == 1]
+                    masks_s_bdd = outputs_s_bdd["pred_masks"][ids == 1]
+                    
+                    masks_s_bdd = F.interpolate(
+                        masks_s_bdd,
+                        size=input_s.shape[2:],  # (H, W)
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                    
+                    probs_pred = F.softmax(logits_s_bdd, dim=-1)[..., :-1]
+                    mask_pred = masks_s_bdd.sigmoid()
+                    probs_pred = torch.einsum('bqc,bqhw->bchw', probs_pred, mask_pred)
+                    probs_pred = (probs_pred / probs_pred.sum(1, keepdim=True).clamp_min(1e-8)) ## Normalize
+                    
+                    # loss_pseudo = self.kl_loss(torch.log(probs_pred.clamp_min(1e-8)), probs_pseudo)[valid_mask].sum() / (ids == 1).sum()
+                    loss_pseudo = self.kl_loss(torch.log(probs_pred.clamp_min(1e-8)), probs_pseudo)[valid_mask].mean()
+                    # print(loss_pseudo)
                 else:
                     dummy = torch.zeros(1, device=self.device)
-                    torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
+                    if is_distributed():
+                        torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
                     loss_pseudo = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
-                    # print(f"Rank {get_rank()} skip unsupervised loss at batch {batch_idx}")
             else:
                 dummy = torch.zeros(1, device=self.device)
-                torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
+                if is_distributed():
+                    torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
                 loss_pseudo = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
         else:
             dummy = torch.zeros(1, device=self.device)
-            torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
+            if is_distributed():
+                torch.distributed.all_reduce(dummy, op=torch.distributed.ReduceOp.SUM)
             loss_pseudo = torch.zeros((), device=self.device, dtype=torch.float32, requires_grad=True)
                      
         losses = losses + self.config.pseudo_loss_weight * loss_pseudo
