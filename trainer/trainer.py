@@ -3035,6 +3035,7 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                 print("Enable superset class names are: ", [sup_names[i] for i in sup_pseudo_enable_class_name_indices])
         
         self.kl_loss = nn.KLDivLoss(reduction="none")
+        self.config.pseudo_label_confidence_score = 0.9
         
     @torch.no_grad()
     def get_pseudo_probs(self, input_w, targets):
@@ -3076,8 +3077,107 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
             valid_mask[i][has_gt_target] = 0
             # pseudo_labels.append(pseudo_label_masked)
 
-        valid_mask = valid_mask.unsqueeze(1).expand(probs_pseudo.shape)
+        
         # pseudo_labels = torch.stack(pseudo_labels)
+        
+        if is_main_process():
+            if True:
+                fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+                fig.suptitle("Unified Prediction", fontsize=16)
+                mean = torch.tensor(self.config.data.mean).view(3, 1, 1).to(input_w.device)
+                std = torch.tensor(self.config.data.std).view(3, 1, 1).to(input_w.device)
+                image_denorm = input_w[0] * std + mean
+                image_np = image_denorm.cpu().numpy().transpose(1, 2, 0)
+                image_np = np.clip(image_np, 0, 1)
+                image_pil = Image.fromarray((image_np * 255).astype(np.uint8))
+                # image_resized = image_pil.resize(img.size, Image.BILINEAR)
+                image_np = np.array(image_pil).astype(np.float32) / 255.0
+                
+                pseudo_labels[~valid_mask.bool()] = 255
+                predicted_mask = pseudo_labels[0].cpu().numpy()
+                ax1.imshow(image_np)
+                # print(self.config.tasks[ids[0].item()])
+                ax1.set_title("Original Image")
+                ax1.axis('off')
+
+                unified_label_colors, unified_class_names = self.config.data.parse_color_and_names(task='bdd100k')
+                
+                # unified_label_colors = self.config.data.get_manual_superset_color_and_names()['sup_colors']
+                # unified_class_names = self.config.data.get_manual_superset_color_and_names()['sup_names']
+                # Find duplicates
+                color_to_indices = {}
+                for idx, color in enumerate(unified_label_colors):
+                    color_to_indices.setdefault(color, []).append(idx)
+
+                class_colors = torch.tensor(unified_label_colors, dtype=torch.float32) / 255.0
+
+                pred_colored = np.zeros((predicted_mask.shape[0], predicted_mask.shape[1], 3))
+                for class_idx in range(len(class_colors)):
+                    class_mask = predicted_mask == class_idx
+                    pred_colored[class_mask] = class_colors[class_idx].cpu().numpy()
+
+                ax2.imshow(image_np)
+                ax2.imshow(pred_colored, alpha=0.5)
+                ax2.set_title("Pseudo-Label Overlay")
+                ax2.axis('off')
+
+                ax3.imshow(pred_colored)
+                ax3.set_title("Pseudo-Label Mask")
+                ax3.axis('off')
+
+                # Legend as a fourth subplot in the bottom row
+
+                # Change layout to 2 rows: 1st row for images, 2nd row for legend (spanning all columns)
+                fig.clf()  # Clear the current figure to redefine the layout
+                gs = fig.add_gridspec(2, 3, height_ratios=[10, 1])
+
+                # Redraw the three images in the first row
+                ax1 = fig.add_subplot(gs[0, 0])
+                ax1.imshow(image_np)
+                ax1.set_title("Original Image")
+                ax1.axis('off')
+
+                ax2 = fig.add_subplot(gs[0, 1])
+                ax2.imshow(image_np)
+                ax2.imshow(pred_colored, alpha=0.5)
+                ax2.set_title("Pseudo-Label Overlay")
+                ax2.axis('off')
+
+                ax3 = fig.add_subplot(gs[0, 2])
+                ax3.imshow(pred_colored)
+                ax3.set_title("Pseudo-Label Mask")
+                ax3.axis('off')
+
+                # Legend in the bottom row, spanning all columns
+                # Move the legend down by increasing the bottom margin and adjusting subplot spacing
+                ax4 = fig.add_subplot(gs[1, :])
+                for idx, (name, color) in enumerate(zip(unified_class_names, unified_label_colors)):
+                    ax4.bar(idx, 1, color=np.array(color)/255, edgecolor='k', width=1)
+                ax4.set_xticks(range(len(unified_class_names)))
+                ax4.set_xticklabels(unified_class_names, rotation=90, ha='center', fontsize=10)
+                ax4.set_yticks([])
+                ax4.set_title('Legend', fontsize=12)
+                ax4.set_xlim(-0.5, len(unified_class_names)-0.5)
+                ax4.tick_params(axis='x', length=0)
+                # plt.tight_layout(rect=[0, 0.08, 1, 1])  # Increase bottom margin (0.08)
+                plt.tight_layout()
+                plt.subplots_adjust(hspace=0.2)         # Increase vertical space between rows
+                # plt.show()
+                # Render figure to RGB array
+                canvas = FigureCanvas(fig)
+                canvas.draw()
+                w, h = fig.canvas.get_width_height()
+                buf = np.frombuffer(canvas.tostring_rgb(), dtype=np.uint8).reshape(h, w, 3)
+
+                plt.close(fig)
+                # Show in OpenCV (convert RGB→BGR)
+                cv2.imshow("Pseudo Labels from EMA", cv2.cvtColor(buf, cv2.COLOR_RGB2BGR))
+                k = cv2.waitKey(1) & 0xFF        # non-blocking
+                if k in (27, ord('q')):          # ESC or q to quit
+                    raise KeyboardInterrupt
+                
+        valid_mask = valid_mask.unsqueeze(1).expand(probs_pseudo.shape)
+        
         return probs_pseudo, valid_mask.bool()
         
     @torch.no_grad()
@@ -3310,8 +3410,8 @@ class MultiDatasetCrossSupTrainer(MultiDatasetTrainer):
                     probs_pred = torch.einsum('bqc,bqhw->bchw', probs_pred, mask_pred)
                     probs_pred = (probs_pred / probs_pred.sum(1, keepdim=True).clamp_min(1e-8)) ## Normalize
                     
-                    # loss_pseudo = self.kl_loss(torch.log(probs_pred.clamp_min(1e-8)), probs_pseudo)[valid_mask].sum() / (ids == 1).sum()
                     loss_pseudo = self.kl_loss(torch.log(probs_pred.clamp_min(1e-8)), probs_pseudo)[valid_mask].mean()
+                    # loss_pseudo = 0.0
                     # print(loss_pseudo)
                 else:
                     dummy = torch.zeros(1, device=self.device)
