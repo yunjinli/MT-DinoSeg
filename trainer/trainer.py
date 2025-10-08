@@ -1994,9 +1994,11 @@ class MultiDatasetTrainer(Trainer):
                                 align_corners=False,
                             )
                             if is_distributed():
-                                outputs_map = self.model.module.decoder.semantic_inference(logits_sup[0], masks_sup[0])
+                                # outputs_map = self.model.module.decoder.semantic_inference(logits_sup[0], masks_sup[0])
+                                outputs_map = self.model.module.decoder.semantic_inference(logits_sup[0], masks_sup[0], False)
                             else:
-                                outputs_map = self.model.decoder.semantic_inference(logits_sup[0], masks_sup[0])
+                                # outputs_map = self.model.decoder.semantic_inference(logits_sup[0], masks_sup[0])
+                                outputs_map = self.model.decoder.semantic_inference(logits_sup[0], masks_sup[0], False)
                             # print(outputs_map.shape)
                             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
                             fig.suptitle("Unified Prediction", fontsize=16)
@@ -2326,9 +2328,11 @@ class MultiDatasetTrainer(Trainer):
                             for mask_cls_result, mask_pred_result in zip(mask_cls_results, mask_pred_results):
                                 # semantic segmentation inference
                                 if is_distributed():
-                                    semmap = self.model.module.decoder.semantic_inference(mask_cls_result, mask_pred_result)
+                                    # semmap = self.model.module.decoder.semantic_inference(mask_cls_result, mask_pred_result)
+                                    semmap = self.model.module.decoder.semantic_inference(mask_cls_result, mask_pred_result, False)
                                 else:
-                                    semmap = self.model.decoder.semantic_inference(mask_cls_result, mask_pred_result)
+                                    # semmap = self.model.decoder.semantic_inference(mask_cls_result, mask_pred_result)
+                                    semmap = self.model.decoder.semantic_inference(mask_cls_result, mask_pred_result, False)
                                 outputs_map.append(semmap)
                             outputs_map = torch.stack(outputs_map)
                             targets_map = self.val_loader.dataset.instances_to_semantic(targets=targets[t], ignore_index=self.config.data.ignore_index)

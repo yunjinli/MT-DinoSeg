@@ -201,8 +201,11 @@ class MultitaskMask2FormerHead(BaseDecoder):
         """Get the mask feature dimension."""
         return getattr(self.config, 'mask_dim', 256)
 
-    def semantic_inference(self, mask_cls, mask_pred):
-        mask_cls = F.softmax(mask_cls, dim=-1)[..., :-1]
+    def semantic_inference(self, mask_cls, mask_pred, no_object_class=True):
+        if no_object_class:
+            mask_cls = F.softmax(mask_cls, dim=-1)[..., :-1]
+        else:
+            mask_cls = F.softmax(mask_cls[..., :-1], dim=-1)
         mask_pred = mask_pred.sigmoid()
         semseg = torch.einsum("qc,qhw->chw", mask_cls, mask_pred)
         return semseg

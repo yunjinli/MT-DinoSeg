@@ -326,10 +326,11 @@ class SetCriterion(nn.Module):
         
         src_logits[idx] = 0.0
         
-        m = 0.3
+        # m = 0.3
+        # loss_negative = torch.nn.functional.relu(src_logits - m).mean()
         
-        loss_negative = torch.nn.functional.relu(src_logits - m).mean()
-        
+        loss_negative = torch.nn.functional.softplus(src_logits).mean()
+        # print(loss_negative.item())
         losses = {"loss_ce": loss_ce + loss_negative}
         return losses
     
