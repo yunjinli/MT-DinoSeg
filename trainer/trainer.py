@@ -1980,7 +1980,7 @@ class MultiDatasetTrainer(Trainer):
                         k = cv2.waitKey(1) & 0xFF        # non-blocking
                         if k in (27, ord('q')):          # ESC or q to quit
                             break
-                if False:
+                if True:
                     with self.ema_model.apply_to(self.model.module if is_distributed() else self.model):
                         self.model.eval()
                         with torch.no_grad():

@@ -218,7 +218,8 @@ class SemsegBDD100kR2S100k(Config):
         
         # colormap_superset, classnames_superset = self.data.get_manual_superset_color_and_names()
         self.model.decoder.num_classes = len(manual_labels_dict['sup_names'])
-        self.model.decoder.no_object_weight = {'bdd100k': 0.1, 'r2s100k': 0.0}
+        # self.model.decoder.no_object_weight = {'bdd100k': 0.1, 'r2s100k': 0.0}
+        self.model.decoder.no_object_weight = {'bdd100k': 0.0, 'r2s100k': 0.0}
         # self.model.decoder.num_obj_queries_dict = self.num_obj_queries_dict
         # self.data.num_classes = len(self.data.class_names)
         self.data.num_classes = self.model.decoder.num_classes

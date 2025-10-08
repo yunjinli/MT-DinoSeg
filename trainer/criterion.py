@@ -322,11 +322,15 @@ class SetCriterion(nn.Module):
             src_logits.shape[:2], self.num_classes, dtype=torch.int64, device=src_logits.device
         )
         target_classes[idx] = target_classes_o
-        # print(src_logits.transpose(1, 2).shape)
-        # print(target_classes.shape)
-        # print(self.empty_weight.shape)
         loss_ce = F.cross_entropy(src_logits.transpose(1, 2), target_classes, self.empty_weight)
-        losses = {"loss_ce": loss_ce}
+        
+        src_logits[idx] = 0.0
+        
+        m = 0.3
+        
+        loss_negative = torch.nn.functional.relu(src_logits - m).mean()
+        
+        losses = {"loss_ce": loss_ce + loss_negative}
         return losses
     
     def loss_masks(self, outputs, targets, indices, num_masks):
