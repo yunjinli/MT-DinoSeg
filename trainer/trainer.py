@@ -39,7 +39,9 @@ from .matcher import HungarianMatcher
 from utility.ema import EMA
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
 import cv2
-
+from torchvision.utils import make_grid
+import math
+import torchvision
 class Trainer:
     """Trainer class for handling the training loop with distributed support."""
     
@@ -1954,7 +1956,31 @@ class MultiDatasetTrainer(Trainer):
             
             # For testing the output of EMA
             if is_main_process():
+                ## Class-agnostic mask visualization
                 if True:
+                    self.model.eval()
+                    with torch.no_grad():
+                        outputs_superset, _ = self.model(inputs)
+                        masks_sup = outputs_superset["pred_masks"]
+                        binary_mask_for_vis = masks_sup[0].sigmoid()
+                        num_queries = binary_mask_for_vis.size(0)
+                        nrow = int(math.ceil(math.sqrt(num_queries)))
+                        grid_vis = make_grid(
+                            binary_mask_for_vis.unsqueeze(1), nrow=nrow, padding=2
+                        )
+                        # grid_vis: [1, H_total, W_total]
+                        # grid_vis_np = grid_vis.cpu().numpy()  # [H_total, W_total], float32 in [0,1]
+                        # print(grid_vis_np.shape)
+                        # grid_vis_np = (grid_vis_np * 255).astype(np.uint8)  # Convert to uint8
+                        # Convert to 3-channel grayscale for cv2.imshow
+                        img = cv2.cvtColor(np.array(torchvision.transforms.ToPILImage()(grid_vis)), cv2.COLOR_RGB2BGR)
+                        # img.show()
+                        # grid_vis_np = cv2.cvtColor(grid_vis_np, cv2.COLOR_GRAY2BGR)
+                        cv2.imshow("Class-agnostic masks", img)
+                        k = cv2.waitKey(1) & 0xFF        # non-blocking
+                        if k in (27, ord('q')):          # ESC or q to quit
+                            break
+                if False:
                     with self.ema_model.apply_to(self.model.module if is_distributed() else self.model):
                         self.model.eval()
                         with torch.no_grad():
